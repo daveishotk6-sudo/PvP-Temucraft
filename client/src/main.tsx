@@ -48,7 +48,7 @@ function ResetWorld({ room }: { room: string }) {
         <h1>{err ? "Error" : "Done"}</h1>
         <p className={err ? "err" : undefined}>{msg}</p>
         <button type="button" className="play" onClick={() => { window.location.href = "/"; }}>
-          Back to Gameme
+          Back to PvP Temucraft
         </button>
         <p style={{ marginTop: 12, fontSize: 13 }}>
           Backup: <a href={`/reset.html?room=${encodeURIComponent(safeRoom(room))}`}>/reset.html?room={safeRoom(room)}</a>
@@ -169,7 +169,7 @@ function Home() {
     <main className="menu">
       <div className="card">
         <p className="kicker">VOXEL SANDBOX</p>
-        <h1>GAMEME</h1>
+        <h1>PVP TEMUCRAFT</h1>
 
         {phase === "checking" && <p>Checking your login…</p>}
 

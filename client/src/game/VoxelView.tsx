@@ -170,7 +170,7 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
 
       <div className="topbar">
         <div className="badge">
-          Gameme · {online} online{status ? ` · ${status}` : ""}
+          PvP Temucraft · {online} online{status ? ` · ${status}` : ""}
           {hud ? ` · ${hud.pos[0]}, ${hud.pos[1]}, ${hud.pos[2]}` : ""}
           {hud?.target ? ` · ${hud.target}` : ""}
         </div>

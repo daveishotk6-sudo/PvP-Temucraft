@@ -1,4 +1,4 @@
-# Gameme
+# PvP Temucraft
 
 Browser voxel sandbox. Open the Railway URL on an iPad. No app install.
 
