@@ -7,6 +7,7 @@ import { BAN_CHECK_MS, banInfoFrom, checkSession, clearAccount, explain, gameNam
 import "./styles.css";
 import { HOLDER_URL } from "./net/holder";
 import { clearRoomLocal } from "./game/save";
+import { TEAM_NAME, type TeamId } from "./game/guns";
 
 function safeRoom(name: string) {
   return name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 48) || "world";
@@ -77,6 +78,7 @@ function Home() {
   const [account, setAccount] = useState<Account | null>(null);
   const [notice, setNotice] = useState("");
   const [ban, setBan] = useState<BanInfo | null>(null);
+  const [team, setTeam] = useState<TeamId>("paint");
 
   /** Leave the game and show why the player is banned. */
   const showBan = useCallback((b: BanInfo) => {
@@ -147,6 +149,7 @@ function Home() {
         seed={seed}
         room={room}
         name={gameName(account)}
+        team={team}
         onExit={() => setPlaying(false)}
       />
     );
@@ -168,7 +171,7 @@ function Home() {
   return (
     <main className="menu">
       <div className="card">
-        <p className="kicker">VOXEL SANDBOX</p>
+        <p className="kicker">TEAM PAINT PVP</p>
         <h1>PVP TEMUCRAFT</h1>
 
         {phase === "checking" && <p>Checking your login…</p>}
@@ -205,7 +208,14 @@ function Home() {
                 Not you? Log out
               </button>
             </p>
-            <p>Same room code is the same world. Friends show up as characters with their name above them.</p>
+            <p>Same room is the same match. Pick a team, then play. Friends on the other team can be painted. Your team cannot.</p>
+            <div className="seg team-pick">
+              {(["paint", "painter"] as const).map((id) => (
+                <button key={id} type="button" className={team === id ? `on ${id}` : id} onClick={() => setTeam(id)}>
+                  {TEAM_NAME[id]}
+                </button>
+              ))}
+            </div>
             <label className="field">
               Room code
               <input value={room} maxLength={16} onChange={(e) => setRoom(e.target.value)} />
@@ -223,8 +233,9 @@ function Home() {
               Play
             </button>
             <ul className="help">
-              <li>iPad: left side moves, right side looks, green Jump, Fly button to fly</li>
-              <li>Your room saves on this device.</li>
+              <li>iPad: joystick moves, drag looks, Jump, Shoot, Reload.</li>
+              <li>Pistol, shotgun (buckshot), and assault rifle. Each reloads at its own speed.</li>
+              <li>Enemies fire a paint gun every 2 seconds. First team to 10 wins the round.</li>
             </ul>
           </>
         )}

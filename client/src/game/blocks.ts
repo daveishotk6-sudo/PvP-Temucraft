@@ -73,6 +73,9 @@ export const SHOVEL_WOOD = 124;
 export const SHOVEL_STONE = 125;
 export const SHOVEL_IRON = 126;
 export const BOW = 127;
+export const PAINT_PISTOL = 200;
+export const PAINT_SHOTGUN = 201;
+export const PAINT_RIFLE = 202;
 
 export const TILE = 16;
 export const ATLAS_COLS = 8;
@@ -175,7 +178,7 @@ export interface ItemDef {
   id: number;
   name: string;
   color: string;
-  kind: "block" | "material" | "pick" | "sword" | "axe" | "shovel" | "bow" | "food";
+  kind: "block" | "material" | "pick" | "sword" | "axe" | "shovel" | "bow" | "food" | "gun";
   speed?: number;
   dmg?: number;
   heal?: number;
@@ -213,6 +216,9 @@ const ITEMS: Record<number, ItemDef> = {
   [SHOVEL_STONE]: { id: SHOVEL_STONE, name: "Stone Shovel", color: "#9a9aa0", kind: "shovel", speed: 4.0 },
   [SHOVEL_IRON]: { id: SHOVEL_IRON, name: "Iron Shovel", color: "#e6cdbb", kind: "shovel", speed: 6.0 },
   [BOW]: { id: BOW, name: "Bow", color: "#8a6a3c", kind: "bow", dmg: 6 },
+  [PAINT_PISTOL]: { id: PAINT_PISTOL, name: "Paint Pistol", color: "#3ec1ff", kind: "gun", dmg: 16 },
+  [PAINT_SHOTGUN]: { id: PAINT_SHOTGUN, name: "Paint Shotgun", color: "#ff5a3c", kind: "gun", dmg: 7 },
+  [PAINT_RIFLE]: { id: PAINT_RIFLE, name: "Paint Assault Rifle", color: "#ffd23a", kind: "gun", dmg: 8 },
 };
 
 /** Raw food that a furnace can cook, and what it becomes. */

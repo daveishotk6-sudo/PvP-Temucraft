@@ -1,28 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { Engine, type HudState } from "./engine";
-import { block, CREATIVE_PALETTE, itemInfo } from "./blocks";
+import { itemInfo } from "./blocks";
 import { loadSave, clearRoomLocal } from "./save";
 import { iconURL } from "./icons";
 import { SIGN_MAX_BREAKS, SIGN_MAX_CHARS, type SignData } from "./signs";
 import { sfx } from "./audio";
 import { connectPhoton, type Ghosts, type PhotonLink } from "../net/photon";
 import { fetchWorld, makeHolderSync } from "../net/holder";
+import { TEAM_NAME, type TeamId } from "./guns";
 
 type Props = {
   seed: number;
   room: string;
   name: string;
+  team: TeamId;
   onExit: () => void;
 };
 
-export default function VoxelView({ seed, room, name, onExit }: Props) {
+export default function VoxelView({ seed, room, name, team, onExit }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
   const net = useRef<PhotonLink | null>(null);
   const [hud, setHud] = useState<HudState | null>(null);
-  const [picker, setPicker] = useState(false);
-  /** Which hotbar slot (0-8) the inventory is editing. */
-  const [editSlot, setEditSlot] = useState(0);
   const [sign, setSign] = useState<SignData | null>(null);
   const [signText, setSignText] = useState("");
   const [online, setOnline] = useState(1);
@@ -31,19 +30,32 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
   const [mx6Open, setMx6Open] = useState(false);
   const [mx6, setMx6] = useState({ fps: 0, seed: 0, chunks: 0, yaw: 0, pitch: 0, fuses: 0, flying: false, health: 20 });
   const admin = name.trim().toLowerCase() === "mx6";
+  const [score, setScore] = useState({ paint: 0, painter: 0 });
+  const [banner, setBanner] = useState("");
 
   useEffect(() => {
     const el = host.current;
     if (!el) return;
     const touch = window.matchMedia("(pointer: coarse)").matches;
     const slot = `room-${room}`;
+    const noteScore = (scored: TeamId, text: string) => {
+      setBanner(text);
+      setScore((s) => {
+        const next = { ...s, [scored]: s[scored] + 1 };
+        if (next[scored] >= 10) {
+          setBanner(`${TEAM_NAME[scored]} wins the round`);
+          return { paint: 0, painter: 0 };
+        }
+        return next;
+      });
+    };
     // World builds are online-only (Holder). Drop any stale local map for this room.
     clearRoomLocal(room);
     const saved = loadSave(slot);
     let placed = false;
     let known: Ghosts = {};
     const e = new Engine({
-      host: el, seed, save: saved, touch, slot, name, onHud: setHud,
+      host: el, seed, save: saved, touch, slot, name, team, onHud: setHud,
     });
     engine.current = e;
 
@@ -65,7 +77,12 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
       net.current?.sign(s);
       saveHolder();
     };
-    e.onPose = (p) => net.current?.move({ ...p, name });
+    e.onPose = (p) => net.current?.move({ ...p, name, team });
+    e.onPlayerHit = (actor, dmg) => net.current?.hit(actor, dmg, team, name);
+    e.onPainted = (killerTeam, killerName) => {
+      net.current?.score(killerTeam, name);
+      noteScore(killerTeam, `${killerName} painted you`);
+    };
     e.timeSource = () => net.current?.time() ?? null;
 
     // Load permanent builds from Holder first, then join live multiplayer.
@@ -118,6 +135,11 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
         onWorld: (edits) => {
           for (const ed of edits) e.applyRemoteBlock(ed.x, ed.y, ed.z, ed.id);
         },
+        onHit: (victim, dmg, fromTeam, fromName) => {
+          if (victim !== link?.me()) return;
+          e.applyPaintHit(dmg, fromTeam, fromName);
+        },
+        onScore: (scored, victim) => noteScore(scored, `${TEAM_NAME[scored]} painted ${victim}`),
       });
       try {
         const flat = e.world.dumpEdits();
@@ -140,7 +162,7 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
       e.dispose();
       engine.current = null;
     };
-  }, [seed, room, name]);
+  }, [seed, room, name, team]);
 
   useEffect(() => {
     if (!admin || !mx6Open) return;
@@ -170,7 +192,7 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
 
       <div className="topbar">
         <div className="badge">
-          PvP Temucraft · {online} online{status ? ` · ${status}` : ""}
+          PvP Temucraft · {hud ? TEAM_NAME[hud.team] : TEAM_NAME[team]} · {online} online{status ? ` · ${status}` : ""}
           {hud ? ` · ${hud.pos[0]}, ${hud.pos[1]}, ${hud.pos[2]}` : ""}
           {hud?.target ? ` · ${hud.target}` : ""}
         </div>
@@ -210,6 +232,18 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
         )}
       </div>
 
+      <div className={`scoreboard ${team}`}>
+        <span className="paint">Paint {score.paint}</span>
+        <span className="painter">Painter {score.painter}</span>
+      </div>
+      {banner && <div className="tip">{banner}</div>}
+
+      <div className="ammo">
+        <b>{hud?.gun ?? "Paint Pistol"}</b>
+        <span>{hud ? `${hud.ammo} / ${hud.magSize}` : ""}</span>
+        {hud && hud.reload > 0 && <i style={{ width: `${Math.round(hud.reload * 100)}%` }} />}
+      </div>
+
       <div className="hotbar">
         {hud?.hotbar.map((id, i) => (
           <button
@@ -217,11 +251,6 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
             key={i}
             type="button"
             onClick={() => e()?.select(i)}
-            onDoubleClick={() => {
-              e()?.select(i);
-              setEditSlot(i);
-              setPicker(true);
-            }}
             className={i === hud.selected ? "slot on" : "slot"}
             aria-label={`Slot ${i + 1}: ${itemInfo(id).name}`}
           >
@@ -233,42 +262,24 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
 
       <div className="joy" />
 
-      <div className="fly-actions">
-        <button data-hud type="button" className={hud?.flying ? "round on" : "round"} onClick={() => e()?.toggleFly()}>
-          Fly
-        </button>
-        {hud?.flying && (
-          <button data-hud type="button" className="round"
-            onPointerDown={(ev) => { ev.preventDefault(); if (e()) e()!.descendHeld = true; }}
-            onPointerUp={() => { if (e()) e()!.descendHeld = false; }}
-            onPointerCancel={() => { if (e()) e()!.descendHeld = false; }}
-            onPointerLeave={() => { if (e()) e()!.descendHeld = false; }}>
-            Down
-          </button>
-        )}
-      </div>
-
       <div className="actions">
         <button data-hud type="button" className="round"
           onPointerDown={(ev) => { ev.preventDefault(); if (e()) e()!.mineHeld = true; }}
           onPointerUp={() => { if (e()) e()!.mineHeld = false; }}
           onPointerCancel={() => { if (e()) e()!.mineHeld = false; }}
           onPointerLeave={() => { if (e()) e()!.mineHeld = false; }}>
-          Mine
+          Shoot
         </button>
         <button data-hud type="button" className="round jump"
           onPointerDown={(ev) => { ev.preventDefault(); e()?.jumpPress(); if (e()) e()!.jumpHeld = true; }}
           onPointerUp={() => { if (e()) e()!.jumpHeld = false; }}
           onPointerCancel={() => { if (e()) e()!.jumpHeld = false; }}
           onPointerLeave={() => { if (e()) e()!.jumpHeld = false; }}>
-          {hud?.flying ? "Up" : "Jump"}
+          Jump
         </button>
         <button data-hud type="button" className="round"
-          onPointerDown={(ev) => { ev.preventDefault(); if (e()) { e()!.placeQueued = true; e()!.placeHeld = true; } }}
-          onPointerUp={() => { if (e()) e()!.placeHeld = false; }}
-          onPointerCancel={() => { if (e()) e()!.placeHeld = false; }}
-          onPointerLeave={() => { if (e()) e()!.placeHeld = false; }}>
-          Place
+          onPointerDown={(ev) => { ev.preventDefault(); e()?.requestReload(); }}>
+          Reload
         </button>
       </div>
 
@@ -287,58 +298,6 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
           <button type="button" onClick={() => engine.current?.spawnLitTnt()}>Spawn lit TNT</button>
           <button type="button" onClick={() => engine.current?.mx6Heal()}>Heal</button>
           <button type="button" onClick={() => setMx6Open(false)}>Close</button>
-        </div>
-      )}
-
-      {picker && (
-        <div className="pause" onClick={() => setPicker(false)}>
-          <div className="card picker inv" onClick={(ev) => ev.stopPropagation()}>
-            <h2>Inventory</h2>
-            <p className="inv-hint">Tap a hotbar slot below, then choose a block or item for that slot.</p>
-
-            <div className="inv-slots">
-              {(hud?.hotbar ?? [0, 0, 0, 0, 0, 0, 0, 0, 0]).map((id, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className={i === editSlot ? "slot on" : "slot"}
-                  title={`Slot ${i + 1}`}
-                  onClick={() => {
-                    setEditSlot(i);
-                    e()?.select(i);
-                  }}
-                >
-                  <img src={iconURL(id)} alt="" draggable={false} />
-                  <span>{i + 1}</span>
-                </button>
-              ))}
-            </div>
-
-            <p className="inv-editing">Editing slot <strong>{editSlot + 1}</strong></p>
-
-            <div className="grid">
-              {CREATIVE_PALETTE.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  className="slot"
-                  title={itemInfo(id).name}
-                  onClick={() => {
-                    e()?.setHotbar(editSlot, id);
-                    e()?.select(editSlot);
-                    sfx.click();
-                    // stay open so you can fill multiple slots
-                  }}
-                >
-                  <img src={iconURL(id)} alt="" draggable={false} />
-                </button>
-              ))}
-            </div>
-
-            <button type="button" className="inv-done" onClick={() => setPicker(false)}>
-              Done
-            </button>
-          </div>
         </div>
       )}
 
@@ -404,9 +363,10 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
       {hud?.dead && (
         <div className="pause dead">
           <div className="card">
-            <h2>You died</h2>
+            <h2>Painted</h2>
+            <p>Respawning in a moment. Teammates do not take your paint.</p>
             <button type="button" className="resume" onClick={() => e()?.respawn()}>
-              Respawn
+              Respawn now
             </button>
           </div>
         </div>
@@ -440,7 +400,7 @@ export default function VoxelView({ seed, room, name, onExit }: Props) {
               ))}
             </div>
             <button type="button" className="exit" onClick={onExit}>Save &amp; Exit</button>
-            <p className="note">WASD · Space jump · Fly: F or double-tap Space/Jump, or the Fly button (Up/Down buttons or Space/Shift to climb and descend) · Left click mine · Right click place · 1-9 or wheel to pick · tap the selected slot to change its block</p>
+            <p className="note">WASD or the joystick to move. Space or Jump. Shoot paints the other team. Reload, or R. 1 pistol, 2 shotgun, 3 rifle. Same team cannot be painted. First team to 10 wins the round.</p>
           </div>
         </div>
       )}

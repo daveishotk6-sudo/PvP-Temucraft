@@ -291,6 +291,15 @@ class Sfx {
     if (!c || !this.gate("click", 40)) return;
     this.tone(c, c.currentTime, { type: "triangle", f: 900, f2: 650, dur: 0.045, g: 0.08 });
   }
+
+  /** Paint gun. `heavy` is the shotgun boom. */
+  paint(heavy = false) {
+    const c = this.ready();
+    if (!c || !this.gate("paint", heavy ? 90 : 40)) return;
+    const t = c.currentTime;
+    this.noise(c, t, { type: "bandpass", f: heavy ? 380 : 980, q: 0.6, dur: heavy ? 0.16 : 0.06, g: heavy ? 0.5 : 0.22 });
+    this.tone(c, t, { type: "square", f: heavy ? 160 : 480, f2: 80, dur: heavy ? 0.1 : 0.04, g: 0.05 });
+  }
 }
 
 export const sfx = new Sfx();

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { AIR, WATER, block, isReplaceable, CREATIVE_PALETTE, SIGN, FURNACE, COAL, SMELT, itemInfo, NETHER_PORTAL, OBSIDIAN, TNT, BASALT } from "./blocks";
+import { AIR, WATER, block, isReplaceable, SIGN, FURNACE, COAL, SMELT, itemInfo, NETHER_PORTAL, OBSIDIAN, TNT, BASALT, PAINT_PISTOL, PAINT_SHOTGUN, PAINT_RIFLE } from "./blocks";
 import {
   spawnHerd, topUpMobs, updateMob, hitMob, disposeMob, mobDrop, mobName, spawnMonsters, isHostile, mobAim,
   createArrow, updateArrow, disposeArrow, type Arrow, type Mob, type MobCtx,
@@ -13,6 +13,7 @@ import { MiningFx } from "./mining";
 import { buildSign, cleanSignText, disposeSign, retextSign, shadeSign, signKey, type SignData, type SignObject } from "./signs";
 import { DAY_MS, DAY_START } from "./daycycle";
 import { CS, EYE, HALF_W, HEIGHT, VOID_Y, WH, World, ck, ckX, ckZ, findSpawn, moveBody, overlaps, raycast, type Hit } from "./world";
+import { GUNS, TEAM_COLOR, gunOf, jitterDir, nextShot, otherTeam, spawnBall, type GunDef, type PaintBall, type TeamId } from "./guns";
 
 export interface HudState {
   selected: number;
@@ -28,6 +29,12 @@ export interface HudState {
   flying: boolean;
   tip: string;
   mobMode: "all" | "passive" | "off";
+  gun: string;
+  ammo: number;
+  magSize: number;
+  /** 0 when ready, otherwise how full the reload is (0..1). */
+  reload: number;
+  team: TeamId;
 }
 
 export interface EngineOpts {
@@ -37,10 +44,11 @@ export interface EngineOpts {
   touch: boolean;
   slot: string;
   name: string;
+  team: TeamId;
   onHud: (s: HudState) => void;
 }
 
-const HOTBAR_DEFAULT = [1, 2, 3, 4, 9, 10, 11, 17, 7];
+const HOTBAR_DEFAULT = [PAINT_PISTOL, PAINT_SHOTGUN, PAINT_RIFLE];
 
 interface Remote {
   group: THREE.Group;
@@ -49,6 +57,7 @@ interface Remote {
   pitch: number; speed: number; vy: number;
   mine: boolean;
   name: string;
+  team: TeamId;
 }
 
 export class Engine {
@@ -87,7 +96,7 @@ export class Engine {
   clock = DAY_START;
 
   onLocalBlock?: (x: number, y: number, z: number, id: number) => void;
-  onPose?: (p: { x: number; y: number; z: number; yaw: number; pitch: number; mine: boolean }) => void;
+  onPose?: (p: { x: number; y: number; z: number; yaw: number; pitch: number; mine: boolean; team: TeamId }) => void;
   /** Shared multiplayer time of day (0..1), or null when not synced (offline / still connecting). */
   timeSource?: () => number | null;
   private remotes = new Map<number, Remote>();
@@ -100,6 +109,19 @@ export class Engine {
   private regenT = 0;
   private fps = 60;
   private fuses: { x: number; y: number; z: number; t: number }[] = [];
+  readonly team: TeamId;
+  private mags = new Map<number, number>();
+  private reloadLeft = 0;
+  private reloadDur = 0;
+  private fireCd = 0;
+  private shotLatch = false;
+  reloadQueued = false;
+  private balls: PaintBall[] = [];
+  private splats: { mesh: THREE.Mesh; life: number }[] = [];
+  private deadT = 0;
+  private hitShots = new Set<string>();
+  /** Victim tells the room which team scored. */
+  onPainted?: (killerTeam: TeamId, killerName: string) => void;
   private airT = 0;
   private peakY = 0;
   private airborne = false;
@@ -160,11 +182,15 @@ export class Engine {
 
   constructor(private o: EngineOpts) {
     const { host, seed, save, touch } = o;
+    this.team = o.team === "painter" ? "painter" : "paint";
+    this.hotbar = [...HOTBAR_DEFAULT];
+    for (const g of GUNS) this.mags.set(g.id, g.mag);
+    this.selected = 0;
     this.rd = touch ? 2 : 3;
     this.world = new World(seed);
     if (save) {
       this.world.loadEdits(save.edits);
-      this.selected = Math.max(0, Math.min(8, save.selected | 0));
+      this.selected = 0;
       this.clock = save.clock;
       for (const [x, y, z, yaw, text] of save.signs ?? []) this.signs.set(signKey(x, y, z), { x, y, z, yaw, text: cleanSignText(text) });
       this.health = Math.max(1, Math.min(20, save.health ?? 20));
@@ -293,18 +319,29 @@ export class Engine {
     }
   }
 
-  setRemote(actor: number, p: { x: number; y: number; z: number; yaw: number; name: string; pitch?: number; mine?: boolean }) {
+  setRemote(actor: number, p: { x: number; y: number; z: number; yaw: number; name: string; pitch?: number; mine?: boolean; team?: TeamId }) {
     const pitch = Number.isFinite(p.pitch) ? (p.pitch as number) : 0;
+    const team: TeamId = p.team === "paint" || p.team === "painter" ? p.team : otherTeam(this.team);
     let r = this.remotes.get(actor);
     if (!r) {
       const g = buildPlayer({ name: p.name, label: p.name, ghost: false });
+      const mark = new THREE.Mesh(
+        new THREE.SphereGeometry(0.13, 8, 6),
+        new THREE.MeshBasicMaterial({ color: TEAM_COLOR[team] }),
+      );
+      mark.position.y = 2.2;
+      mark.name = "team";
+      g.add(mark);
       g.position.set(p.x, p.y, p.z);
       g.rotation.y = p.yaw;
       this.scene.add(g);
-      r = { group: g, tx: p.x, ty: p.y, tz: p.z, tyaw: p.yaw, tpitch: pitch, pitch, speed: 0, vy: 0, mine: !!p.mine, name: p.name };
+      r = { group: g, tx: p.x, ty: p.y, tz: p.z, tyaw: p.yaw, tpitch: pitch, pitch, speed: 0, vy: 0, mine: !!p.mine, name: p.name, team };
       this.remotes.set(actor, r);
     }
-    r.tx = p.x; r.ty = p.y; r.tz = p.z; r.tyaw = p.yaw; r.tpitch = pitch; r.mine = !!p.mine;
+    r.tx = p.x; r.ty = p.y; r.tz = p.z; r.tyaw = p.yaw; r.tpitch = pitch; r.mine = !!p.mine; r.team = team;
+    const mark = r.group.getObjectByName("team");
+    const mat = mark && mark instanceof THREE.Mesh ? mark.material : null;
+    if (mat instanceof THREE.MeshBasicMaterial) mat.color.setHex(TEAM_COLOR[team]);
   }
 
   remoteInfo(actor: number) {
@@ -358,35 +395,27 @@ export class Engine {
   }
 
   select(i: number) {
-    this.selected = ((i % 9) + 9) % 9;
+    const n = this.hotbar.length || 1;
+    this.selected = ((i % n) + n) % n;
     sfx.click();
     this.emit();
   }
 
-  /** Turn fly mode on/off. Turning it on gives a short takeoff hop (about a block) so it's obvious it worked. */
-  setFly(on: boolean) {
-    if (on === this.flying || this.dead) return;
-    this.flying = on;
-    if (on) {
-      this.flyLift = 5;
-      this.grounded = false;
-      this.flyGrace = 0.4; // don't let ground contact right at takeoff switch it straight back off
-    } else {
-      this.flyLift = 0;
-      this.descendHeld = false;
-    }
-    this.emit();
+  /** Fly is off in PvP matches. */
+  setFly(_on: boolean) {
+    this.flying = false;
+    this.descendHeld = false;
   }
   toggleFly() {
-    this.setFly(!this.flying);
+    this.flying = false;
   }
-  /** Jump pressed (key or touch button). Pressing twice quickly toggles fly mode. */
+  /** Jump pressed (key or touch button). */
   jumpPress() {
-    const now = performance.now();
-    if (now - this.lastJump < 280) this.toggleFly();
-    this.lastJump = now;
+    this.lastJump = performance.now();
   }
   setHotbar(slot: number, id: number) {
+    if (slot < 0 || slot >= this.hotbar.length) return;
+    if (!gunOf(id)) return;
     this.hotbar[slot] = id;
     this.emit();
   }
@@ -399,6 +428,7 @@ export class Engine {
     if (this.health <= 0) {
       sfx.death();
       this.dead = true;
+      this.deadT = 0;
       this.flying = false;
       this.descendHeld = false;
       this.mineHeld = false;
@@ -455,10 +485,15 @@ export class Engine {
     this.health = 20;
     this.air = 10;
     this.dead = false;
+    this.deadT = 0;
     this.hurtCd = 99;
     this.pos = { x: this.spawn.x, y: this.spawn.y + 1, z: this.spawn.z };
     this.vel.x = this.vel.y = this.vel.z = 0;
     this.flying = false;
+    for (const g of GUNS) this.mags.set(g.id, g.mag);
+    this.reloadLeft = 0;
+    this.fireCd = 0;
+    this.shotLatch = false;
     this.peakY = this.pos.y;
     this.world.stream(this.pos.x, this.pos.z, this.rd + 1);
     this.lastChunk = "";
@@ -521,8 +556,8 @@ export class Engine {
     on("keydown", (e) => {
       if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement | null)?.tagName ?? "")) return;
       if (e.repeat) return;
-      if (/^Digit[1-9]$/.test(e.code)) this.select(Number(e.code.slice(5)) - 1);
-      else if (e.code === "KeyF") this.toggleFly();
+      if (/^Digit[1-3]$/.test(e.code)) this.select(Number(e.code.slice(5)) - 1);
+      else if (e.code === "KeyR") this.reloadQueued = true;
       else if (e.code === "Space") this.jumpPress();
       if (["Space", "ArrowUp", "ArrowDown"].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
@@ -540,7 +575,7 @@ export class Engine {
       this.yaw -= e.movementX * 0.0022;
       this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch - e.movementY * 0.0022));
     });
-    on("mouseup", (e) => { if (e.button === 0) this.mineHeld = false; if (e.button === 2) this.placeHeld = false; });
+    on("mouseup", (e) => { if (e.button === 0) this.mineHeld = false; });
     on("resize", () => this.resize(host));
     const wheel = (e: WheelEvent) => { e.preventDefault(); this.select(this.selected + (e.deltaY > 0 ? 1 : -1)); };
     canvas.addEventListener("wheel", wheel, { passive: false });
@@ -552,7 +587,7 @@ export class Engine {
       if (this.o.touch || this.paused) return;
       if (document.pointerLockElement !== canvas) { canvas.requestPointerLock?.(); return; }
       if (e.button === 0) this.mineHeld = true;
-      if (e.button === 2) { this.placeHeld = true; this.placeQueued = true; }
+      if (e.button === 2) this.reloadQueued = true;
     };
     canvas.addEventListener("mousedown", down);
     this.cleanup.push(() => canvas.removeEventListener("mousedown", down));
@@ -710,6 +745,11 @@ export class Engine {
       mobMode: this.mobMode,
       flying: this.flying,
       tip: this.smeltMsgT > 0 ? this.smeltMsg : "",
+      gun: gunOf(this.hotbar[this.selected] ?? 0)?.name ?? "Paint Pistol",
+      ammo: this.mags.get(this.hotbar[this.selected] ?? 0) ?? 0,
+      magSize: gunOf(this.hotbar[this.selected] ?? 0)?.mag ?? 0,
+      reload: this.reloadLeft > 0 && this.reloadDur > 0 ? 1 - this.reloadLeft / this.reloadDur : 0,
+      team: this.team,
     });
   }
 
@@ -786,7 +826,7 @@ export class Engine {
     this.poseT += dt;
     if (this.poseT > 0.12) {
       this.poseT = 0;
-      this.onPose?.({ x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw, pitch: this.pitch, mine: this.fxMining });
+      this.onPose?.({ x: this.pos.x, y: this.pos.y, z: this.pos.z, yaw: this.yaw, pitch: this.pitch, mine: this.fxMining, team: this.team });
     }
     this.renderer.render(this.scene, this.camera);
 
@@ -798,8 +838,13 @@ export class Engine {
 
   private update(dt: number) {
     this.tickFuses(dt);
+    this.stepBalls(dt);
     const w = this.world;
-    if (this.dead) return;
+    if (this.dead) {
+      this.deadT += dt;
+      if (this.deadT >= 3) this.respawn();
+      return;
+    }
     this.hurtCd += dt;
     this.clock += (dt * 1000) / DAY_MS;
     const shared = this.timeSource?.();
@@ -1049,23 +1094,11 @@ export class Engine {
     const ctx: MobCtx = {
       hostileOn: this.mobMode === "all" && !this.dead,
       hurtPlayer: (dmg, fx, fz) => this.hurtByMob(dmg, fx, fz),
-      shoot: (from, to) => {
-        const a = createArrow(from, to);
-        this.scene.add(a.mesh);
-        this.arrows.push(a);
-      },
+      shoot: (from, to) => this.spawnEnemyPaint(from, to),
     };
-    const sunny = this.dayFactor > 0.6;
     const keep: Mob[] = [];
     for (const m of this.mobs) {
-      // Cull mobs that wandered very far away so we can respawn near the player.
       const far = Math.hypot(m.pos.x - this.pos.x, m.pos.z - this.pos.z) > 64;
-      // Surface monsters burn away in daylight; ones in caves stay.
-      if (isHostile(m.kind) && sunny && this.world.exposure(m.pos.x, m.pos.y + 1, m.pos.z) > 0.99) {
-        m.hp -= dt * 4;
-        m.hurtT = Math.max(m.hurtT, 0.1);
-        if (m.hp <= 0) m.dead = true;
-      }
       if (far || !updateMob(m, this.world, dt, this.pos, ctx)) {
         this.scene.remove(m.group);
         disposeMob(m);
@@ -1096,17 +1129,15 @@ export class Engine {
       }
     }
 
-    // Monsters: more of them at night on the surface, a few in dark caves, none by day in the open.
+    // Paint-gun enemies stay around the player, day or night.
     if (this.mobMode === "all" && !this.dead) {
       this.monsterT -= dt;
       if (this.monsterT <= 0) {
-        this.monsterT = 3;
+        this.monsterT = 4;
         const hostile = this.mobs.filter((m) => isHostile(m.kind)).length;
-        const headLight = this.world.exposure(this.pos.x, this.pos.y + 1, this.pos.z);
-        const where = this.dayFactor < 0.3 && headLight > 0.99 ? "surface" : headLight < 0.3 ? "cave" : null;
-        const cap = where === "surface" ? 5 : where === "cave" ? 3 : 0;
-        if (where && hostile < cap) {
-          for (const m of spawnMonsters(this.world, this.pos, Math.min(2, cap - hostile), where)) {
+        const cap = 6;
+        if (hostile < cap) {
+          for (const m of spawnMonsters(this.world, this.pos, Math.min(2, cap - hostile), "surface")) {
             this.scene.add(m.group);
             this.mobs.push(m);
           }
@@ -1147,174 +1178,221 @@ export class Engine {
     const dx = -Math.sin(this.yaw) * Math.cos(this.pitch);
     const dy = Math.sin(this.pitch);
     const dz = -Math.cos(this.yaw) * Math.cos(this.pitch);
-    this.hit = raycast(w, ex, ey, ez, dx, dy, dz, 55);
-    const hit = this.hit;
-    if (hit) {
-      this.outline.visible = true;
-      this.outline.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
-    } else this.outline.visible = false;
+    this.hit = null;
+    this.outline.visible = false;
+    this.handleGuns(dt, dx, dy, dz, ex, ey, ez);
+    return;
 
-    this.mineCd -= dt;
-    this.placeCd -= dt;
+  }
 
-    // --- hit mobs with left click (priority over blocks when aiming at one) ---
-    let aimedMob: Mob | null = null;
-    {
-      const reach = 4.5;
-      let best = reach;
-      for (const m of this.mobs) {
-        if (m.dead) continue;
-        const aim = mobAim(m);
-        const mx = m.pos.x - ex, my = aim.cy - ey, mz = m.pos.z - ez;
-        const t = mx * dx + my * dy + mz * dz;
-        if (t < 0.3 || t > best) continue;
-        const px = ex + dx * t, py = ey + dy * t, pz = ez + dz * t;
-        if (Math.hypot(px - m.pos.x, py - aim.cy, pz - m.pos.z) < aim.r) {
-          best = t;
-          aimedMob = m;
-        }
+  private gunNow(): GunDef | null {
+    return gunOf(this.hotbar[this.selected] ?? 0);
+  }
+
+  requestReload() {
+    this.reloadQueued = true;
+  }
+
+  /** Paint from another player. Same team does nothing. */
+  applyPaintHit(dmg: number, fromTeam: TeamId, fromName: string) {
+    if (this.dead || fromTeam === this.team || dmg <= 0) return;
+    this.damage(Math.max(1, Math.round(dmg)));
+    if (this.dead) this.onPainted?.(fromTeam, fromName);
+  }
+
+  private handleGuns(dt: number, dx: number, dy: number, dz: number, ex: number, ey: number, ez: number) {
+    this.fireCd = Math.max(0, this.fireCd - dt);
+    const gun = this.gunNow();
+    if (this.reloadLeft > 0) {
+      this.reloadLeft = Math.max(0, this.reloadLeft - dt);
+      if (this.reloadLeft === 0 && gun) {
+        this.mags.set(gun.id, gun.mag);
+        sfx.click();
+        this.emit();
       }
     }
+    if (this.reloadQueued) {
+      this.reloadQueued = false;
+      this.beginReload(gun);
+    }
+    if (!this.mineHeld) this.shotLatch = false;
+    if (!gun || this.dead || this.reloadLeft > 0 || this.fireCd > 0 || !this.mineHeld) return;
+    const ammo = this.mags.get(gun.id) ?? 0;
+    if (ammo <= 0) {
+      this.beginReload(gun);
+      return;
+    }
+    if (!gun.auto && this.shotLatch) return;
+    this.fireGun(gun, dx, dy, dz, ex, ey, ez);
+    if (!gun.auto) this.shotLatch = true;
+  }
 
-    this.fxMining = false;
-    this.fxProgress = 0;
-    if (this.mineHeld && aimedMob && this.mineCd <= 0) {
-      this.fx.swingOnce();
-      const held = this.hotbar[this.selected] ?? 0;
-      const info = itemInfo(held);
-      const dmg = (info.kind === "sword" || info.kind === "axe" || info.kind === "bow")
-        ? (info.dmg ?? 4)
-        : 2;
-      const died = hitMob(aimedMob, dmg);
-      aimedMob.vel.x += dx * 4;
-      aimedMob.vel.z += dz * 4;
-      aimedMob.vel.y = Math.max(aimedMob.vel.y, 4);
-      sfx.hurt();
-      this.mineCd = 0.35;
-      this.fxMining = true;
-      if (died) {
-        const drop = mobDrop(aimedMob.kind);
-        this.giveItem(drop);
-        this.smeltMsg = `${mobName(aimedMob.kind)} → ${itemInfo(drop).name}`;
-        this.smeltMsgT = 2.5;
-        this.scene.remove(aimedMob.group);
-        disposeMob(aimedMob);
-        this.mobs = this.mobs.filter((x) => x !== aimedMob);
-      }
-    } else if (this.mineHeld && hit && !aimedMob) {
-      const id = w.get(hit.x, hit.y, hit.z);
-      const def = block(id);
-      const tk = `${hit.x},${hit.y},${hit.z}`;
-      if (tk !== this.mineKey) { this.mineKey = tk; this.mineProgress = 0; }
-      if (def.hardness !== Infinity) {
-        const held = this.hotbar[this.selected] ?? 0;
-        const tool = itemInfo(held);
-        let need = def.hardness;
-        // Tool speed shortens break time (creative still feels snappy)
-        if (tool.speed && (tool.kind === "pick" || tool.kind === "axe" || tool.kind === "shovel")) {
-          need = Math.max(0.08, def.hardness / tool.speed);
-        } else {
-          need = Math.min(def.hardness, 0.45);
-        }
-        this.mineProgress += dt;
-        this.mineSfxT -= dt;
-        this.fxMining = true;
-        this.fxProgress = Math.min(1, this.mineProgress / need);
-        if (this.mineSfxT <= 0) {
-          this.mineSfxT = 0.2;
-          sfx.block(id, "hit");
-          this.fx.burst(hit.x + hit.faceX * 0.45, hit.y + hit.faceY * 0.45, hit.z + hit.faceZ * 0.45, id, 2, 1.6);
-        }
-        if (this.mineProgress >= need && this.mineCd <= 0) {
-          this.breakBlock(hit.x, hit.y, hit.z);
-          this.mineProgress = 0;
-          this.mineCd = 0.18;
-        }
-      }
-    } else this.mineProgress = 0;
+  private beginReload(gun: GunDef | null) {
+    if (!gun || this.reloadLeft > 0 || this.dead) return;
+    const ammo = this.mags.get(gun.id) ?? 0;
+    if (ammo >= gun.mag) return;
+    this.reloadLeft = gun.reload;
+    this.reloadDur = gun.reload;
+    this.smeltMsg = `Reloading ${gun.name}`;
+    this.smeltMsgT = gun.reload;
+    this.emit();
+  }
 
-    // --- furnace smelting: hold right-click on furnace while holding raw meat + coal in hotbar ---
-    if (hit && w.get(hit.x, hit.y, hit.z) === FURNACE && (this.placeHeld || this.placeQueued)) {
-      this.placeQueued = false;
-      const held = this.hotbar[this.selected] ?? 0;
-      const cooked = SMELT[held];
-      const key = `${hit.x},${hit.y},${hit.z}`;
-      if (cooked) {
-        if (!this.furnaceTarget || this.furnaceTarget.x !== hit.x || this.furnaceTarget.y !== hit.y || this.furnaceTarget.z !== hit.z) {
-          this.furnaceTarget = { x: hit.x, y: hit.y, z: hit.z };
-          this.furnaceProgress = 0;
-        }
-        // Need coal somewhere in the hotbar
-        const hasCoal = this.hotbar.some((id) => id === COAL);
-        if (!hasCoal) {
-          this.smeltMsg = "Need coal in hotbar";
-          this.smeltMsgT = 1.5;
-          this.furnaceProgress = 0;
-        } else {
-          this.furnaceProgress += dt;
-          this.fxProgress = Math.min(1, this.furnaceProgress / 2.4);
-          this.fxMining = true;
-          if (this.furnaceProgress >= 2.4) {
-            if (this.consumeCoal()) {
-              this.hotbar[this.selected] = cooked;
-              this.emit();
-              this.smeltMsg = `Cooked → ${itemInfo(cooked).name}`;
-              this.smeltMsgT = 2.5;
-              sfx.block(FURNACE, "place");
-            }
-            this.furnaceProgress = 0;
-            this.placeCd = 0.4;
-          }
+  private fireGun(gun: GunDef, dx: number, dy: number, dz: number, ex: number, ey: number, ez: number) {
+    const ammo = this.mags.get(gun.id) ?? 0;
+    if (ammo <= 0) return;
+    this.mags.set(gun.id, ammo - 1);
+    this.fireCd = gun.fire;
+    this.fx.swingOnce();
+    sfx.paint(gun.pellets > 1);
+    const shot = nextShot();
+    const origin = { x: ex, y: ey, z: ez };
+    for (let i = 0; i < gun.pellets; i++) {
+      const dir = jitterDir(dx, dy, dz, gun.spread);
+      const ball = spawnBall(origin, dir, {
+        speed: gun.speed,
+        dmg: gun.dmg,
+        gravity: gun.gravity,
+        color: TEAM_COLOR[this.team],
+        hostile: false,
+        life: gun.life,
+        shot,
+      });
+      this.scene.add(ball.mesh);
+      this.balls.push(ball);
+    }
+    if ((this.mags.get(gun.id) ?? 0) <= 0) this.beginReload(gun);
+    else this.emit();
+  }
+
+  private spawnEnemyPaint(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }) {
+    const dir = jitterDir(to.x - from.x, to.y - from.y, to.z - from.z, 0.05);
+    const ball = spawnBall(from, dir, {
+      speed: 26,
+      dmg: 7,
+      gravity: 2.2,
+      color: TEAM_COLOR[otherTeam(this.team)],
+      hostile: true,
+      life: 1.5,
+      shot: nextShot(),
+    });
+    this.scene.add(ball.mesh);
+    this.balls.push(ball);
+  }
+
+  private stepBalls(dt: number) {
+    const next: PaintBall[] = [];
+    for (const b of this.balls) {
+      if (this.advanceBall(b, dt)) next.push(b);
+      else this.scene.remove(b.mesh);
+    }
+    this.balls = next;
+    const kept = [];
+    for (const s of this.splats) {
+      s.life -= dt;
+      if (s.life > 0) kept.push(s);
+      else {
+        this.scene.remove(s.mesh);
+        s.mesh.geometry.dispose();
+      }
+    }
+    this.splats = kept;
+  }
+
+  private advanceBall(b: PaintBall, dt: number): boolean {
+    b.life -= dt;
+    if (b.life <= 0) return false;
+    b.vel.y -= b.gravity * dt;
+    const steps = 4;
+    for (let i = 0; i < steps; i++) {
+      b.pos.x += (b.vel.x * dt) / steps;
+      b.pos.y += (b.vel.y * dt) / steps;
+      b.pos.z += (b.vel.z * dt) / steps;
+      if (b.hostile) {
+        if (!this.dead && this.ballHitsPlayer(b.pos)) {
+          this.hurtByMob(b.dmg, b.pos.x - b.vel.x, b.pos.z - b.vel.z);
+          return false;
         }
       } else {
-        this.smeltMsg = "Hold raw meat to cook";
-        this.smeltMsgT = 1.2;
-        this.furnaceProgress = 0;
+        if (this.ballHitsMob(b)) return false;
+        if (this.ballHitsRemote(b)) return false;
       }
-      // Don't also place a block while using the furnace
-    } else {
-      this.furnaceProgress = 0;
-      this.furnaceTarget = null;
-
-      if ((this.placeQueued || this.placeHeld) && this.placeCd <= 0 && hit) {
-        this.placeQueued = false;
-        const target = w.get(hit.x, hit.y, hit.z);
-        if (target === SIGN) {
-          this.placeQueued = false;
-          this.placeHeld = false;
-          this.placeCd = 0.4;
-          this.openSign(hit.x, hit.y, hit.z);
-          return;
-        }
-        const px = isReplaceable(target) ? hit.x : hit.x + hit.faceX;
-        const py = isReplaceable(target) ? hit.y : hit.y + hit.faceY;
-        const pz = isReplaceable(target) ? hit.z : hit.z + hit.faceZ;
-        const id = this.hotbar[this.selected]!;
-        const def = block(id);
-        const supported = id !== SIGN || w.solid(px, py - 1, pz);
-        if (id > 0 && id < 100 && supported && isReplaceable(w.get(px, py, pz)) && py >= 0) {
-          const blocks = def.solid &&
-            this.pos.x - HALF_W < px + 1 && this.pos.x + HALF_W > px &&
-            this.pos.z - HALF_W < pz + 1 && this.pos.z + HALF_W > pz &&
-            this.pos.y < py + 1 && this.pos.y + HEIGHT > py;
-          if (!blocks) {
-            w.set(px, py, pz, id);
-            this.markEdit(px, pz);
-            sfx.block(id, "place");
-            this.fx.swingOnce();
-            this.onLocalBlock?.(px, py, pz, id);
-            this.placeCd = 0.22;
-            if (id === SIGN) {
-              const snap = Math.PI / 8;
-              this.signs.set(signKey(px, py, pz), { x: px, y: py, z: pz, yaw: Math.round(this.yaw / snap) * snap, text: "" });
-              this.onLocalSign?.({ ...this.signs.get(signKey(px, py, pz))! });
-              this.syncSigns();
-              this.openSign(px, py, pz);
-            }
-          }
-        }
-      } else this.placeQueued = false;
+      if (this.world.solid(Math.floor(b.pos.x), Math.floor(b.pos.y), Math.floor(b.pos.z))) {
+        this.addSplat(b);
+        return false;
+      }
     }
+    b.mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
+    return true;
+  }
+
+  private ballHitsPlayer(p: { x: number; y: number; z: number }) {
+    return Math.abs(p.x - this.pos.x) < 0.46
+      && Math.abs(p.z - this.pos.z) < 0.46
+      && p.y > this.pos.y
+      && p.y < this.pos.y + 1.75;
+  }
+
+  private ballHitsMob(b: PaintBall) {
+    for (const m of this.mobs) {
+      if (m.dead || !isHostile(m.kind)) continue;
+      const key = `${b.shot}:m${m.id}`;
+      if (this.hitShots.has(key)) continue;
+      const aim = mobAim(m);
+      if (Math.hypot(b.pos.x - m.pos.x, b.pos.y - aim.cy, b.pos.z - m.pos.z) > aim.r + 0.2) continue;
+      this.hitShots.add(key);
+      const died = hitMob(m, b.dmg);
+      m.vel.y = Math.max(m.vel.y, 3);
+      if (died) {
+        this.smeltMsg = `Painted a ${mobName(m.kind)}`;
+        this.smeltMsgT = 1.2;
+        this.scene.remove(m.group);
+        disposeMob(m);
+        this.mobs = this.mobs.filter((x) => x !== m);
+      }
+      if (this.hitShots.size > 500) this.hitShots.clear();
+      return true;
+    }
+    return false;
+  }
+
+  private ballHitsRemote(b: PaintBall) {
+    for (const [actor, r] of this.remotes) {
+      if (r.team === this.team) continue;
+      const key = `${b.shot}:p${actor}`;
+      if (this.hitShots.has(key)) continue;
+      const y = r.group.position.y;
+      const hit = Math.abs(b.pos.x - r.group.position.x) < 0.5
+        && Math.abs(b.pos.z - r.group.position.z) < 0.5
+        && b.pos.y > y && b.pos.y < y + 1.85;
+      if (!hit) continue;
+      this.hitShots.add(key);
+      this.onPlayerHit?.(actor, b.dmg);
+      this.smeltMsg = `Hit ${r.name}`;
+      this.smeltMsgT = 0.7;
+      return true;
+    }
+    return false;
+  }
+
+  /** Shooter tells the victim's client to take the paint. */
+  onPlayerHit?: (actor: number, dmg: number) => void;
+
+  private addSplat(b: PaintBall) {
+    if (this.splats.length > 40) {
+      const old = this.splats.shift();
+      if (old) {
+        this.scene.remove(old.mesh);
+        old.mesh.geometry.dispose();
+      }
+    }
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 6, 4),
+      new THREE.MeshBasicMaterial({ color: b.color }),
+    );
+    mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
+    this.scene.add(mesh);
+    this.splats.push({ mesh, life: 7 });
   }
 
   private tickFuses(dt: number) {
@@ -1379,9 +1457,6 @@ export class Engine {
     }
   }
 }
-
-
-export { CREATIVE_PALETTE };
 
 
 function isMx6(name: string) {

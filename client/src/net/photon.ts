@@ -1,5 +1,6 @@
 import Photon from "./photon-sdk.js";
 import { DAY_MS, DAY_START } from "../game/daycycle";
+import type { TeamId } from "../game/guns";
 
 /** Photon Realtime App ID. PlayFab does not authenticate this connection. */
 export const PUN_APP_ID = "d24bf2c0-bee9-42ea-91de-7c431ba4ccb0";
@@ -10,6 +11,8 @@ const EV_BLOCK = 2;
 const EV_SIGN = 3;
 /** Full (or partial) world edit dump for late joiners / offline catch-up. */
 const EV_WORLD = 4;
+const EV_HIT = 5;
+const EV_SCORE = 6;
 
 /** Max block edits kept in the shared room property / local backup. */
 const MAX_EDITS = 2500;
@@ -19,7 +22,7 @@ const EMPTY_ROOM_TTL_MS = 10 * 60 * 1000; // 10 minutes (Photon cloud limit-frie
 export type Ghost = { x: number; y: number; z: number; yaw: number; t: number };
 export type Ghosts = Record<string, Ghost>;
 /** `pitch` (where they are looking) is optional so older clients that don't send it still work. */
-export type RemotePos = { x: number; y: number; z: number; yaw: number; name: string; pitch?: number; mine?: boolean };
+export type RemotePos = { x: number; y: number; z: number; yaw: number; name: string; pitch?: number; mine?: boolean; team?: TeamId };
 
 export type WorldEdit = { x: number; y: number; z: number; id: number };
 
@@ -34,6 +37,10 @@ type Handlers = {
   onGhosts: (ghosts: Ghosts) => void;
   /** Apply a batch of persisted world edits (join / room property / peer snapshot). */
   onWorld?: (edits: WorldEdit[]) => void;
+  /** Someone shot this client. `actor` is who fired. */
+  onHit?: (victim: number, dmg: number, fromTeam: TeamId, fromName: string) => void;
+  /** A player was painted out. `team` is the team that scored. */
+  onScore?: (team: TeamId, victim: string) => void;
 };
 
 export type PhotonLink = {
@@ -47,6 +54,10 @@ export type PhotonLink = {
   pushWorld: (flat: number[]) => void;
   /** Shared time of day (0..1) from the room's server clock, or null until it is synced. */
   time: () => number | null;
+  hit: (victim: number, dmg: number, fromTeam: TeamId, fromName: string) => void;
+  score: (team: TeamId, victim: string) => void;
+  /** This client's Photon actor number, or 0 before the room is joined. */
+  me: () => number;
   close: () => void;
 };
 
@@ -381,9 +392,12 @@ export function connectPhoton(room: string, name: string, h: Handlers): PhotonLi
       if (Array.isArray(data.flat)) {
         const incoming = flatToMap(data.flat as number[]);
         mergeEdits(incoming, true);
-        // Share merged result back into the room property.
         scheduleRoomWrite();
       }
+    } else if (code === EV_HIT && typeof data.victim === "number") {
+      h.onHit?.(data.victim, Number(data.dmg) || 0, data.fromTeam, String(data.fromName || "Player"));
+    } else if (code === EV_SCORE && (data.team === "paint" || data.team === "painter")) {
+      h.onScore?.(data.team, String(data.victim || ""));
     }
   };
 
@@ -419,6 +433,27 @@ export function connectPhoton(room: string, name: string, h: Handlers): PhotonLi
         client.raiseEvent(EV_POS, pos, { receivers: others });
       } catch {
         /* offline */
+      }
+    },
+    hit(victim, dmg, fromTeam, fromName) {
+      try {
+        client.raiseEvent(EV_HIT, { victim, dmg, fromTeam, fromName }, { receivers: others });
+      } catch {
+        /* offline */
+      }
+    },
+    score(team, victim) {
+      try {
+        client.raiseEvent(EV_SCORE, { team, victim }, { receivers: others });
+      } catch {
+        /* offline */
+      }
+    },
+    me() {
+      try {
+        return client.myActor().actorNr ?? 0;
+      } catch {
+        return 0;
       }
     },
     setGhost(who, g) {

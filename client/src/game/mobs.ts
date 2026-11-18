@@ -586,6 +586,15 @@ function updateMonster(m: Mob, world: World, dt: number, player: { x: number; y:
 
   if (active) {
     m.yaw = Math.atan2(-dx, -dz);
+    // Every hostile carries a paint gun and fires one shot every 2 seconds.
+    if ((m.shootT ?? 0) <= 0 && ctx) {
+      m.shootT = 2;
+      m.atkT = 0.25;
+      ctx.shoot(
+        { x: m.pos.x, y: m.pos.y + 1.35, z: m.pos.z },
+        { x: player.x + (Math.random() - 0.5) * 0.7, y: player.y + 1.05, z: player.z + (Math.random() - 0.5) * 0.7 },
+      );
+    }
     if (m.kind === "zombie") {
       if (dist > 1.0) { tx = ux * sp; tz = uz * sp; }
       if (dist < 1.35 && Math.abs(dy) < 1.7 && m.cd! <= 0) {
@@ -614,14 +623,6 @@ function updateMonster(m: Mob, world: World, dt: number, player: { x: number; y:
         const side = Math.sin(m.age * 0.7) > 0 ? 1 : -1;
         tx = -uz * side * sp * 0.5;
         tz = ux * side * sp * 0.5;
-      }
-      if (dist < 18 && m.shootT! <= 0) {
-        m.shootT = 1.6 + Math.random() * 0.8;
-        m.atkT = 0.4;
-        ctx!.shoot(
-          { x: m.pos.x, y: m.pos.y + 1.45, z: m.pos.z },
-          { x: player.x + (Math.random() - 0.5) * 0.9, y: player.y + 1.1, z: player.z + (Math.random() - 0.5) * 0.9 },
-        );
       }
     }
   } else if (m.wanderT <= 0) {
@@ -721,7 +722,7 @@ export function spawnMonsters(
       }
       if (!found) continue;
       const light = world.exposure(x, y + 1, z);
-      if (where === "surface" ? light < 0.99 : light > 0.35) continue;
+      if (where === "cave" && light > 0.35) continue;
       const kind = kinds[Math.floor(Math.random() * kinds.length)]!;
       if (overlaps(world, x + 0.5, y + 0.05, z + 0.5, KIND[kind].hw ?? 0.3, KIND[kind].h ?? 1.8)) continue;
       out.push(createMob(kind, x + 0.5, y + 0.05, z + 0.5));

@@ -79,6 +79,23 @@ function itemIcon(g: CanvasRenderingContext2D, id: number) {
       px(6 + k, 3 + k, it.color);
     }
     px(4, 3, it.color); px(13, 10, it.color); px(5, 4, dark); px(14, 11, dark);
+  } else if (it.kind === "gun") {
+    const body = it.color;
+    line(3, 13, 8, 8, "#6d5129");
+    line(4, 13, 9, 8, wood);
+    if (id === 201) {
+      line(8, 8, 15, 4, body);
+      line(8, 9, 15, 6, body);
+      px(14, 3, "#fff"); px(14, 5, "#fff");
+    } else if (id === 202) {
+      line(8, 8, 15, 6, body);
+      line(8, 7, 14, 5, "#222");
+      px(15, 5, "#fff");
+    } else {
+      line(8, 8, 14, 5, body);
+      px(14, 4, "#fff");
+    }
+    px(7, 9, dark);
   } else if (it.kind === "sword") {
     for (let k = 0; k <= 9; k++) { px(5 + k, 11 - k, it.color); px(6 + k, 11 - k, it.color); }
     px(14, 2, "#ffffff88"); px(13, 3, "#ffffff55");

@@ -47,6 +47,25 @@ button { font: inherit; color: inherit; }
   background: rgba(0,0,0,.5); border-radius: 8px; padding: 6px 12px; font-size: 13px;
 }
 .menu-btn { pointer-events: auto; border: 1px solid rgba(255,255,255,.2); color: white; }
+.scoreboard {
+  position: absolute; top: 48px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; pointer-events: none; font-weight: 800; font-size: 13px;
+}
+.scoreboard span { padding: 4px 10px; border-radius: 999px; background: rgba(0,0,0,.55); }
+.scoreboard .paint { color: #7ecbff; }
+.scoreboard .painter { color: #ff8ab6; }
+.ammo {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(156px + env(safe-area-inset-bottom, 0px));
+  text-align: center; pointer-events: none; min-width: 140px;
+}
+.ammo b { display: block; font-size: 13px; }
+.ammo span { font-size: 18px; font-weight: 800; }
+.ammo i {
+  display: block; height: 4px; margin-top: 4px; background: #ffd23a; border-radius: 99px;
+}
+.team-pick .paint.on { background: #1d6fbf; border-color: #7ecbff; }
+.team-pick .painter.on { background: #b4235c; border-color: #ff8ab6; }
 .mx6 {
   position: absolute; top: 52px; right: 12px; z-index: 8; width: min(86vw, 240px);
   background: rgba(0,0,0,.78); border-radius: 12px; padding: 10px 12px; pointer-events: auto;
