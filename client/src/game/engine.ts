@@ -113,6 +113,8 @@ export class Engine {
   private mags = new Map<number, number>();
   private reloadLeft = 0;
   private reloadDur = 0;
+  private infAmmo = false;
+  private instaReload = false;
   private fireCd = 0;
   private shotLatch = false;
   reloadQueued = false;
@@ -446,19 +448,19 @@ export class Engine {
     this.emit();
   }
 
-  /** MX6 debug only. Full heal, and clear a death if one is in progress. */
+  /** Debug only (MX6 or KAP). Full heal, and clear a death if one is in progress. */
 
   mx6Heal() {
-    if (!isMx6(this.o.name)) return;
+    if (!isDebug(this.o.name)) return;
     this.health = 20;
     this.air = 10;
     this.dead = false;
     this.emit();
   }
 
-  /** MX6 debug only. Drop a block of TNT a few steps ahead, already burning. */
+  /** Debug only (MX6 or KAP). Drop a block of TNT a few steps ahead, already burning. */
   spawnLitTnt() {
-    if (!isMx6(this.o.name)) return;
+    if (!isDebug(this.o.name)) return;
     const sin = Math.sin(this.yaw);
     const cos = Math.cos(this.yaw);
     const x = Math.floor(this.pos.x - sin * 4);
@@ -483,7 +485,29 @@ export class Engine {
       fuses: this.fuses.length,
       flying: this.flying,
       health: this.health,
+      infAmmo: this.infAmmo,
+      instaReload: this.instaReload,
     };
+  }
+
+  /** Debug only. Magazine never drops. */
+  setInfAmmo(on: boolean) {
+    if (!isDebug(this.o.name)) return;
+    this.infAmmo = on;
+    if (on) for (const g of GUNS) this.mags.set(g.id, g.mag);
+    this.emit();
+  }
+
+  /** Debug only. Reloads finish the moment they start. */
+  setInstaReload(on: boolean) {
+    if (!isDebug(this.o.name)) return;
+    this.instaReload = on;
+    if (on && this.reloadLeft > 0) {
+      const gun = this.gunNow();
+      if (gun) this.mags.set(gun.id, gun.mag);
+      this.reloadLeft = 0;
+    }
+    this.emit();
   }
 
 
@@ -1330,7 +1354,7 @@ export class Engine {
     if (!this.mineHeld) this.shotLatch = false;
     if (!gun || this.dead || this.reloadLeft > 0 || this.fireCd > 0 || !this.mineHeld) return;
     const ammo = this.mags.get(gun.id) ?? 0;
-    if (ammo <= 0) {
+    if (ammo <= 0 && !this.infAmmo) {
       this.beginReload(gun);
       return;
     }
@@ -1343,6 +1367,15 @@ export class Engine {
     if (!gun || this.reloadLeft > 0 || this.dead) return;
     const ammo = this.mags.get(gun.id) ?? 0;
     if (ammo >= gun.mag) return;
+    if (this.instaReload) {
+      this.mags.set(gun.id, gun.mag);
+      this.reloadLeft = 0;
+      this.smeltMsg = `${gun.name} reloaded`;
+      this.smeltMsgT = 0.6;
+      sfx.click();
+      this.emit();
+      return;
+    }
     this.reloadLeft = gun.reload;
     this.reloadDur = gun.reload;
     this.smeltMsg = `Reloading ${gun.name}`;
@@ -1352,8 +1385,8 @@ export class Engine {
 
   private fireGun(gun: GunDef, dx: number, dy: number, dz: number, ex: number, ey: number, ez: number) {
     const ammo = this.mags.get(gun.id) ?? 0;
-    if (ammo <= 0) return;
-    this.mags.set(gun.id, ammo - 1);
+    if (ammo <= 0 && !this.infAmmo) return;
+    if (!this.infAmmo) this.mags.set(gun.id, ammo - 1);
     this.fireCd = gun.fire;
     this.fx.swingOnce();
     sfx.paint(gun.pellets > 1);
@@ -1376,7 +1409,7 @@ export class Engine {
       this.balls.push(ball);
     }
     this.onBalls?.({ x: origin.x, y: origin.y, z: origin.z, team: this.team, gun: gun.id, dirs });
-    if ((this.mags.get(gun.id) ?? 0) <= 0) this.beginReload(gun);
+    if (!this.infAmmo && (this.mags.get(gun.id) ?? 0) <= 0) this.beginReload(gun);
     else this.emit();
   }
 
@@ -1579,6 +1612,7 @@ export class Engine {
 }
 
 
-function isMx6(name: string) {
-  return name.trim().toLowerCase() === "mx6";
+function isDebug(name: string) {
+  const n = name.trim().toLowerCase();
+  return n === "mx6" || n === "kap";
 }

@@ -76,6 +76,7 @@ button { font: inherit; color: inherit; }
   width: 100%; margin-top: 6px; border: 0; border-radius: 8px; padding: 8px;
   background: #c43030; color: white; font-weight: 700;
 }
+.mx6 button.on { background: #15803d; }
 .mx6 button:last-child { background: #3f3f46; }
 .mx6-row { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
 .mx6-stats p { margin: 0 0 3px; }

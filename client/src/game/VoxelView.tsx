@@ -28,8 +28,10 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
   const [status, setStatus] = useState("Connecting");
   const [muted, setMuted] = useState(sfx.muted);
   const [mx6Open, setMx6Open] = useState(false);
-  const [mx6, setMx6] = useState({ fps: 0, seed: 0, chunks: 0, yaw: 0, pitch: 0, fuses: 0, flying: false, health: 20 });
-  const admin = name.trim().toLowerCase() === "mx6";
+  const [mx6, setMx6] = useState({ fps: 0, seed: 0, chunks: 0, yaw: 0, pitch: 0, fuses: 0, flying: false, health: 20, infAmmo: false, instaReload: false });
+  const who = name.trim().toLowerCase();
+  const admin = who === "mx6" || who === "kap";
+  const debugLabel = who === "kap" ? "KAP Debug" : "MX6 Debug";
   const [score, setScore] = useState({ paint: 0, painter: 0 });
   const [banner, setBanner] = useState("");
 
@@ -214,7 +216,7 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
           </button>
           {admin && (
             <button data-hud type="button" className="menu-btn" onClick={() => setMx6Open((v) => !v)}>
-              MX6 Debug
+              {debugLabel}
             </button>
           )}
         </div>
@@ -294,7 +296,7 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
 
       {admin && mx6Open && (
         <div className="mx6" data-hud>
-          <h2>MX6 Debug</h2>
+          <h2>{debugLabel}</h2>
           <p>FPS {mx6.fps} · chunks {mx6.chunks} · seed {mx6.seed}</p>
           <p>
             pos {hud ? `${hud.pos[0]} ${hud.pos[1]} ${hud.pos[2]}` : "…"} · hp {mx6.health}
@@ -304,6 +306,12 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
             look {mx6.yaw.toFixed(2)} / {mx6.pitch.toFixed(2)} · fuses {mx6.fuses}
           </p>
           <p>{status || "online"} · {online} in room</p>
+          <button type="button" className={mx6.infAmmo ? "on" : ""} onClick={() => engine.current?.setInfAmmo(!mx6.infAmmo)}>
+            Inf ammo: {mx6.infAmmo ? "On" : "Off"}
+          </button>
+          <button type="button" className={mx6.instaReload ? "on" : ""} onClick={() => engine.current?.setInstaReload(!mx6.instaReload)}>
+            Insta reload: {mx6.instaReload ? "On" : "Off"}
+          </button>
           <button type="button" onClick={() => engine.current?.spawnLitTnt()}>Spawn lit TNT</button>
           <button type="button" onClick={() => engine.current?.mx6Heal()}>Heal</button>
           <button type="button" onClick={() => setMx6Open(false)}>Close</button>
