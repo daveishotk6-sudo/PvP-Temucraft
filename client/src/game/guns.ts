@@ -38,12 +38,12 @@ export interface GunDef {
 }
 
 export const GUNS: GunDef[] = [
-  { id: PAINT_PISTOL, name: "Paint Pistol", mag: 10, reload: 1.15, fire: 0.32, auto: false, pellets: 1, spread: 0.012, speed: 48, dmg: 16, gravity: 1.5, life: 1.1, color: 0x3ec1ff },
-  { id: PAINT_SHOTGUN, name: "Paint Shotgun", mag: 6, reload: 1.9, fire: 0.7, auto: false, pellets: 8, spread: 0.09, speed: 44, dmg: 12, gravity: 2.2, life: 0.85, color: 0xff5a3c },
-  { id: PAINT_RIFLE, name: "Paint Assault Rifle", mag: 30, reload: 1.85, fire: 0.11, auto: true, pellets: 1, spread: 0.038, speed: 60, dmg: 8, gravity: 0.8, life: 1.15, color: 0xffd23a },
-  { id: PAINT_SMG, name: "Paint SMG", mag: 28, reload: 1.35, fire: 0.065, auto: true, pellets: 1, spread: 0.07, speed: 50, dmg: 5, gravity: 1.4, life: 0.85, color: 0x7dff6a },
-  { id: PAINT_SNIPER, name: "Paint Sniper", mag: 4, reload: 2.7, fire: 1.2, auto: false, pellets: 1, spread: 0.002, speed: 92, dmg: 20, gravity: 0.2, life: 1.6, color: 0xc084fc },
-  { id: PAINT_REVOLVER, name: "Paint Revolver", mag: 6, reload: 1.55, fire: 0.48, auto: false, pellets: 1, spread: 0.008, speed: 58, dmg: 14, gravity: 0.9, life: 1.25, color: 0xfb923c },
+  { id: PAINT_PISTOL, name: "Paint Pistol", mag: 10, reload: 1.15, fire: 0.32, auto: false, pellets: 1, spread: 0.012, speed: 48, dmg: 6, gravity: 1.5, life: 1.1, color: 0x3ec1ff },
+  { id: PAINT_SHOTGUN, name: "Paint Shotgun", mag: 6, reload: 1.9, fire: 0.7, auto: false, pellets: 8, spread: 0.09, speed: 44, dmg: 3, gravity: 2.2, life: 0.85, color: 0xff5a3c },
+  { id: PAINT_RIFLE, name: "Paint Assault Rifle", mag: 30, reload: 1.85, fire: 0.11, auto: true, pellets: 1, spread: 0.038, speed: 60, dmg: 4, gravity: 0.8, life: 1.15, color: 0xffd23a },
+  { id: PAINT_SMG, name: "Paint SMG", mag: 28, reload: 1.35, fire: 0.065, auto: true, pellets: 1, spread: 0.07, speed: 50, dmg: 2, gravity: 1.4, life: 0.85, color: 0x7dff6a },
+  { id: PAINT_SNIPER, name: "Paint Sniper", mag: 4, reload: 2.7, fire: 1.2, auto: false, pellets: 1, spread: 0.002, speed: 92, dmg: 10, gravity: 0.2, life: 1.6, color: 0xc084fc },
+  { id: PAINT_REVOLVER, name: "Paint Revolver", mag: 6, reload: 1.55, fire: 0.48, auto: false, pellets: 1, spread: 0.008, speed: 58, dmg: 7, gravity: 0.9, life: 1.25, color: 0xfb923c },
 ];
 
 export function gunOf(id: number): GunDef | null {
@@ -60,6 +60,8 @@ export interface PaintBall {
   color: number;
   /** Enemy paint hurts the local player. Player paint hurts mobs and the other team. */
   hostile: boolean;
+  /** Seen by other players. Does not deal damage; the shooter already did. */
+  visual: boolean;
   shot: number;
 }
 
@@ -92,7 +94,7 @@ export function jitterDir(dx: number, dy: number, dz: number, spread: number) {
 export function spawnBall(
   from: { x: number; y: number; z: number },
   dir: { x: number; y: number; z: number },
-  o: { speed: number; dmg: number; gravity: number; color: number; hostile: boolean; life: number; shot: number },
+  o: { speed: number; dmg: number; gravity: number; color: number; hostile: boolean; life: number; shot: number; visual?: boolean },
 ): PaintBall {
   const mesh = new THREE.Mesh(geo, paintMat(o.color));
   mesh.position.set(from.x, from.y, from.z);
@@ -105,6 +107,7 @@ export function spawnBall(
     gravity: o.gravity,
     color: o.color,
     hostile: o.hostile,
+    visual: !!o.visual,
     shot: o.shot,
   };
 }

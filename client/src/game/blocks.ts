@@ -219,12 +219,12 @@ const ITEMS: Record<number, ItemDef> = {
   [SHOVEL_STONE]: { id: SHOVEL_STONE, name: "Stone Shovel", color: "#9a9aa0", kind: "shovel", speed: 4.0 },
   [SHOVEL_IRON]: { id: SHOVEL_IRON, name: "Iron Shovel", color: "#e6cdbb", kind: "shovel", speed: 6.0 },
   [BOW]: { id: BOW, name: "Bow", color: "#8a6a3c", kind: "bow", dmg: 6 },
-  [PAINT_PISTOL]: { id: PAINT_PISTOL, name: "Paint Pistol", color: "#3ec1ff", kind: "gun", dmg: 16 },
-  [PAINT_SHOTGUN]: { id: PAINT_SHOTGUN, name: "Paint Shotgun", color: "#ff5a3c", kind: "gun", dmg: 12 },
-  [PAINT_RIFLE]: { id: PAINT_RIFLE, name: "Paint Assault Rifle", color: "#ffd23a", kind: "gun", dmg: 8 },
-  [PAINT_SMG]: { id: PAINT_SMG, name: "Paint SMG", color: "#7dff6a", kind: "gun", dmg: 5 },
-  [PAINT_SNIPER]: { id: PAINT_SNIPER, name: "Paint Sniper", color: "#c084fc", kind: "gun", dmg: 20 },
-  [PAINT_REVOLVER]: { id: PAINT_REVOLVER, name: "Paint Revolver", color: "#fb923c", kind: "gun", dmg: 14 },
+  [PAINT_PISTOL]: { id: PAINT_PISTOL, name: "Paint Pistol", color: "#3ec1ff", kind: "gun", dmg: 6 },
+  [PAINT_SHOTGUN]: { id: PAINT_SHOTGUN, name: "Paint Shotgun", color: "#ff5a3c", kind: "gun", dmg: 3 },
+  [PAINT_RIFLE]: { id: PAINT_RIFLE, name: "Paint Assault Rifle", color: "#ffd23a", kind: "gun", dmg: 4 },
+  [PAINT_SMG]: { id: PAINT_SMG, name: "Paint SMG", color: "#7dff6a", kind: "gun", dmg: 2 },
+  [PAINT_SNIPER]: { id: PAINT_SNIPER, name: "Paint Sniper", color: "#c084fc", kind: "gun", dmg: 10 },
+  [PAINT_REVOLVER]: { id: PAINT_REVOLVER, name: "Paint Revolver", color: "#fb923c", kind: "gun", dmg: 7 },
 };
 
 /** Raw food that a furnace can cook, and what it becomes. */

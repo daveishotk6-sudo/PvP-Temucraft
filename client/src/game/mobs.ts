@@ -4,6 +4,21 @@ import { RAW_PORK, RAW_BEEF, RAW_CHICKEN, ROTTEN_FLESH, BONE, STRING, WATER, ite
 
 export type MobKind = "pig" | "cow" | "chicken" | "zombie" | "skeleton" | "spider";
 
+export type MobSnap = {
+  id: number;
+  kind: MobKind;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  hp: number;
+};
+
+const MOB_KINDS: MobKind[] = ["pig", "cow", "chicken", "zombie", "skeleton", "spider"];
+export function isMobKind(k: string): k is MobKind {
+  return (MOB_KINDS as string[]).includes(k);
+}
+
 export interface Mob {
   id: number;
   kind: MobKind;
@@ -23,6 +38,11 @@ export interface Mob {
   shootT?: number;
   leapT?: number;
   atkT?: number;
+  /** Network target while another player is simulating this mob. */
+  nx?: number;
+  ny?: number;
+  nz?: number;
+  nyaw?: number;
 }
 
 interface KindDef {

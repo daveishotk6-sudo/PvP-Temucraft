@@ -1,6 +1,7 @@
 import Photon from "./photon-sdk.js";
 import { DAY_MS, DAY_START } from "../game/daycycle";
 import type { TeamId } from "../game/guns";
+import type { MobSnap } from "../game/mobs";
 
 /** Photon Realtime App ID. PlayFab does not authenticate this connection. */
 export const PUN_APP_ID = "d24bf2c0-bee9-42ea-91de-7c431ba4ccb0";
@@ -13,6 +14,9 @@ const EV_SIGN = 3;
 const EV_WORLD = 4;
 const EV_HIT = 5;
 const EV_SCORE = 6;
+const EV_BALL = 7;
+const EV_MOBS = 8;
+const EV_MOBHIT = 9;
 
 /** Max block edits kept in the shared room property / local backup. */
 const MAX_EDITS = 2500;
@@ -41,6 +45,9 @@ type Handlers = {
   onHit?: (victim: number, dmg: number, fromTeam: TeamId, fromName: string) => void;
   /** A player was painted out. `team` is the team that scored. */
   onScore?: (team: TeamId, victim: string) => void;
+  onBalls?: (p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[] }) => void;
+  onMobs?: (list: MobSnap[]) => void;
+  onMobHurt?: (id: number, dmg: number) => void;
 };
 
 export type PhotonLink = {
@@ -58,6 +65,11 @@ export type PhotonLink = {
   score: (team: TeamId, victim: string) => void;
   /** This client's Photon actor number, or 0 before the room is joined. */
   me: () => number;
+  /** Lowest actor in the room simulates the shared monsters. Solo play counts as master. */
+  isMaster: () => boolean;
+  balls: (p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[] }) => void;
+  mobs: (list: MobSnap[]) => void;
+  mobHurt: (id: number, dmg: number) => void;
   close: () => void;
 };
 
@@ -398,6 +410,15 @@ export function connectPhoton(room: string, name: string, h: Handlers): PhotonLi
       h.onHit?.(data.victim, Number(data.dmg) || 0, data.fromTeam, String(data.fromName || "Player"));
     } else if (code === EV_SCORE && (data.team === "paint" || data.team === "painter")) {
       h.onScore?.(data.team, String(data.victim || ""));
+    } else if (code === EV_BALL && Array.isArray(data.dirs)) {
+      if (actorNr === client.myActor().actorNr) return;
+      h.onBalls?.(data);
+    } else if (code === EV_MOBS && Array.isArray(data.list)) {
+      if (actorNr === client.myActor().actorNr) return;
+      h.onMobs?.(data.list as MobSnap[]);
+    } else if (code === EV_MOBHIT && typeof data.id === "number") {
+      if (actorNr === client.myActor().actorNr) return;
+      h.onMobHurt?.(data.id, Number(data.dmg) || 0);
     }
   };
 
@@ -454,6 +475,36 @@ export function connectPhoton(room: string, name: string, h: Handlers): PhotonLi
         return client.myActor().actorNr ?? 0;
       } catch {
         return 0;
+      }
+    },
+    isMaster() {
+      try {
+        const me = client.myActor().actorNr || 0;
+        if (!me || client.state() !== LBC.State.Joined) return true;
+        return me === client.myRoomMasterActorNr();
+      } catch {
+        return true;
+      }
+    },
+    balls(p) {
+      try {
+        client.raiseEvent(EV_BALL, p, { receivers: others });
+      } catch {
+        /* offline */
+      }
+    },
+    mobs(list) {
+      try {
+        client.raiseEvent(EV_MOBS, { list }, { receivers: others });
+      } catch {
+        /* offline */
+      }
+    },
+    mobHurt(id, dmg) {
+      try {
+        client.raiseEvent(EV_MOBHIT, { id, dmg }, { receivers: others });
+      } catch {
+        /* offline */
       }
     },
     setGhost(who, g) {

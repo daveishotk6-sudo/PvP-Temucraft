@@ -77,8 +77,14 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
       net.current?.sign(s);
       saveHolder();
     };
-    e.onPose = (p) => net.current?.move({ ...p, name, team });
+    e.onPose = (p) => {
+      net.current?.move({ ...p, name, team });
+      e.setMobHost(net.current?.isMaster() ?? true);
+    };
     e.onPlayerHit = (actor, dmg) => net.current?.hit(actor, dmg, team, name);
+    e.onBalls = (p) => net.current?.balls(p);
+    e.onMobSync = (list) => net.current?.mobs(list);
+    e.onMobHurt = (id, dmg) => net.current?.mobHurt(id, dmg);
     e.onPainted = (killerTeam, killerName) => {
       net.current?.score(killerTeam, name);
       noteScore(killerTeam, `${killerName} painted you`);
@@ -140,6 +146,9 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
           e.applyPaintHit(dmg, fromTeam, fromName);
         },
         onScore: (scored, victim) => noteScore(scored, `${TEAM_NAME[scored]} painted ${victim}`),
+        onBalls: (p) => e.applyBalls(p),
+        onMobs: (list) => e.applyMobs(list),
+        onMobHurt: (id, dmg) => e.applyMobHurt(id, dmg),
       });
       try {
         const flat = e.world.dumpEdits();

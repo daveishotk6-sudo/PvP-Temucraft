@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { AIR, WATER, block, isReplaceable, SIGN, FURNACE, COAL, SMELT, itemInfo, NETHER_PORTAL, OBSIDIAN, TNT, BASALT, PAINT_PISTOL, PAINT_SHOTGUN, PAINT_RIFLE, PAINT_SMG, PAINT_SNIPER, PAINT_REVOLVER } from "./blocks";
 import {
-  spawnHerd, topUpMobs, updateMob, hitMob, disposeMob, mobDrop, mobName, spawnMonsters, isHostile, mobAim,
-  createArrow, updateArrow, disposeArrow, type Arrow, type Mob, type MobCtx,
+  spawnHerd, topUpMobs, updateMob, hitMob, disposeMob, mobDrop, mobName, spawnMonsters, isHostile, mobAim, createMob, isMobKind,
+  createArrow, updateArrow, disposeArrow, type Arrow, type Mob, type MobCtx, type MobSnap,
 } from "./mobs";
 import { buildChunk, createTerrainMaterials } from "./mesh";
 import { writeSave, type SaveData } from "./save";
@@ -122,6 +122,12 @@ export class Engine {
   private hitShots = new Set<string>();
   /** Victim tells the room which team scored. */
   onPainted?: (killerTeam: TeamId, killerName: string) => void;
+  /** True when this client simulates the shared monsters. */
+  private mobHost = true;
+  private mobSendT = 0;
+  onMobSync?: (list: MobSnap[]) => void;
+  onMobHurt?: (id: number, dmg: number) => void;
+  onBalls?: (p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[] }) => void;
   private airT = 0;
   private peakY = 0;
   private airborne = false;
@@ -1093,10 +1099,15 @@ export class Engine {
 
   private updateMobs(dt: number) {
     if (this.mobMode === "off") return;
+    if (!this.mobHost) {
+      this.lerpMobs(dt);
+      return;
+    }
     const ctx: MobCtx = {
-      hostileOn: this.mobMode === "all" && !this.dead,
-      hurtPlayer: (dmg, fx, fz) => this.hurtByMob(dmg, fx, fz),
-      shoot: (from, to) => this.spawnEnemyPaint(from, to),
+      // The match is player versus player. Monsters wander, they do not hunt you.
+      hostileOn: false,
+      hurtPlayer: () => {},
+      shoot: () => {},
     };
     const keep: Mob[] = [];
     for (const m of this.mobs) {
@@ -1145,6 +1156,105 @@ export class Engine {
           }
         }
       }
+    }
+    this.mobSendT -= dt;
+    if (this.mobSendT <= 0) {
+      this.mobSendT = 0.25;
+      this.onMobSync?.(this.mobs.filter((m) => !m.dead).map((m) => ({
+        id: m.id, kind: m.kind, x: m.pos.x, y: m.pos.y, z: m.pos.z, yaw: m.yaw, hp: m.hp,
+      })));
+    }
+  }
+
+  setMobHost(on: boolean) {
+    if (on === this.mobHost) return;
+    this.mobHost = on;
+    if (!on) {
+      for (const m of this.mobs) {
+        this.scene.remove(m.group);
+        disposeMob(m);
+      }
+      this.mobs = [];
+    }
+  }
+
+  applyMobs(list: MobSnap[]) {
+    if (this.mobHost) return;
+    const seen = new Set<number>();
+    for (const s of list) {
+      if (!s || typeof s.id !== "number" || !isMobKind(s.kind)) continue;
+      seen.add(s.id);
+      let m = this.mobs.find((x) => x.id === s.id);
+      if (!m) {
+        m = createMob(s.kind, s.x, s.y, s.z);
+        m.id = s.id;
+        m.yaw = s.yaw;
+        this.scene.add(m.group);
+        this.mobs.push(m);
+      }
+      m.nx = s.x;
+      m.ny = s.y;
+      m.nz = s.z;
+      m.nyaw = s.yaw;
+      m.hp = s.hp;
+      if (m.hp <= 0) m.dead = true;
+    }
+    this.mobs = this.mobs.filter((m) => {
+      if (seen.has(m.id) && !m.dead) return true;
+      this.scene.remove(m.group);
+      disposeMob(m);
+      return false;
+    });
+  }
+
+  applyMobHurt(id: number, dmg: number) {
+    if (!this.mobHost || dmg <= 0) return;
+    const m = this.mobs.find((x) => x.id === id && !x.dead);
+    if (!m) return;
+    if (hitMob(m, dmg)) {
+      this.scene.remove(m.group);
+      disposeMob(m);
+      this.mobs = this.mobs.filter((x) => x !== m);
+    }
+  }
+
+  applyBalls(p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[] }) {
+    const gun = gunOf(p.gun) ?? GUNS[0];
+    if (!gun || !p.dirs) return;
+    const color = p.team === "painter" ? TEAM_COLOR.painter : TEAM_COLOR.paint;
+    for (let i = 0; i + 2 < p.dirs.length; i += 3) {
+      const ball = spawnBall(
+        { x: p.x, y: p.y, z: p.z },
+        { x: p.dirs[i]!, y: p.dirs[i + 1]!, z: p.dirs[i + 2]! },
+        {
+          speed: gun.speed,
+          dmg: 0,
+          gravity: gun.gravity,
+          color,
+          hostile: false,
+          life: gun.life,
+          shot: nextShot(),
+          visual: true,
+        },
+      );
+      this.scene.add(ball.mesh);
+      this.balls.push(ball);
+    }
+  }
+
+  private lerpMobs(dt: number) {
+    const k = Math.min(1, dt * 10);
+    for (const m of this.mobs) {
+      if (m.nx == null || m.ny == null || m.nz == null) continue;
+      m.pos.x += (m.nx - m.pos.x) * k;
+      m.pos.y += (m.ny - m.pos.y) * k;
+      m.pos.z += (m.nz - m.pos.z) * k;
+      let turn = (m.nyaw ?? m.yaw) - m.yaw;
+      while (turn > Math.PI) turn -= Math.PI * 2;
+      while (turn < -Math.PI) turn += Math.PI * 2;
+      m.yaw += turn * k;
+      m.group.position.set(m.pos.x, m.pos.y, m.pos.z);
+      m.group.rotation.y = m.yaw + Math.PI;
     }
   }
 
@@ -1249,8 +1359,10 @@ export class Engine {
     sfx.paint(gun.pellets > 1);
     const shot = nextShot();
     const origin = { x: ex, y: ey, z: ez };
+    const dirs: number[] = [];
     for (let i = 0; i < gun.pellets; i++) {
       const dir = jitterDir(dx, dy, dz, gun.spread);
+      dirs.push(dir.x, dir.y, dir.z);
       const ball = spawnBall(origin, dir, {
         speed: gun.speed,
         dmg: gun.dmg,
@@ -1263,6 +1375,7 @@ export class Engine {
       this.scene.add(ball.mesh);
       this.balls.push(ball);
     }
+    this.onBalls?.({ x: origin.x, y: origin.y, z: origin.z, team: this.team, gun: gun.id, dirs });
     if ((this.mags.get(gun.id) ?? 0) <= 0) this.beginReload(gun);
     else this.emit();
   }
@@ -1311,11 +1424,11 @@ export class Engine {
       b.pos.y += (b.vel.y * dt) / steps;
       b.pos.z += (b.vel.z * dt) / steps;
       if (b.hostile) {
-        if (!this.dead && this.ballHitsPlayer(b.pos)) {
+        if (!b.visual && !this.dead && this.ballHitsPlayer(b.pos)) {
           this.hurtByMob(b.dmg, b.pos.x - b.vel.x, b.pos.z - b.vel.z);
           return false;
         }
-      } else {
+      } else if (!b.visual) {
         if (this.ballHitsMob(b)) return false;
         if (this.ballHitsRemote(b)) return false;
       }
@@ -1336,6 +1449,7 @@ export class Engine {
   }
 
   private ballHitsMob(b: PaintBall) {
+    if (b.visual) return false;
     for (const m of this.mobs) {
       if (m.dead || !isHostile(m.kind)) continue;
       const key = `${b.shot}:m${m.id}`;
@@ -1343,6 +1457,10 @@ export class Engine {
       const aim = mobAim(m);
       if (Math.hypot(b.pos.x - m.pos.x, b.pos.y - aim.cy, b.pos.z - m.pos.z) > aim.r + 0.2) continue;
       this.hitShots.add(key);
+      if (!this.mobHost) {
+        this.onMobHurt?.(m.id, b.dmg);
+        return true;
+      }
       const died = hitMob(m, b.dmg);
       m.vel.y = Math.max(m.vel.y, 3);
       if (died) {

@@ -2,7 +2,7 @@
 
 Team paint fight in the voxel world. Team Paint versus Team Painter. No creative mode and no flying.
 
-You carry six paint guns: pistol, shotgun, assault rifle, SMG, sniper, and revolver. The shotgun fires eight pellets. Each gun has its own magazine and reload time. Only one or two paint enemies are near you, and they shoot once every 2 seconds. Same room code is the same match. First team to 10 paints wins the round.
+You carry six paint guns: pistol, shotgun, assault rifle, SMG, sniper, and revolver. The shotgun fires eight pellets. Each gun has its own magazine and reload time. The match is player versus player, Team Paint versus Team Painter. Monsters are shared across the room and do not attack. Paint shots and splats are shared too. Guns hit lighter so a fight lasts more than one shot. First team to 10 paints wins the round.
 
 Browser voxel sandbox. Open the Railway URL on an iPad. No app install.
 
@@ -17,7 +17,7 @@ If the service still crashes, set the start command in Railway to `npm start` an
 
 ## Play
 
-- Desktop: click the world to look, WASD, Space jump, left click mine/hit, right click place
+- Desktop: click the world to look, WASD, Space jump, left click shoot, right click reload
 - iPad: left side moves, right side looks, green Jump, Mine, Place
 
 ## Mobs & cooking
