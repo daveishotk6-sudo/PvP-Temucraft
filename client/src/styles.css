@@ -98,7 +98,7 @@ button { font: inherit; color: inherit; }
   position: absolute; left: 50%; transform: translateX(-50%);
   bottom: calc(108px + env(safe-area-inset-bottom, 0px));
   display: flex; flex-wrap: wrap; justify-content: center; gap: 4px;
-  max-width: min(94vw, 340px);
+  max-width: min(96vw, 420px);
   background: rgba(0,0,0,.55); padding: 6px; border-radius: 12px;
 }
 .slot {

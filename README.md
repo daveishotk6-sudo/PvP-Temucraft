@@ -2,7 +2,7 @@
 
 Team paint fight in the voxel world. Team Paint versus Team Painter. No creative mode and no flying.
 
-You carry a paint pistol, a paint shotgun (seven pellets of buckshot), and a paint assault rifle. Each gun has its own magazine and reload time. Enemies shoot one paint round every 2 seconds. Same room code is the same match. First team to 10 paints wins the round.
+You carry six paint guns: pistol, shotgun, assault rifle, SMG, sniper, and revolver. The shotgun fires eight pellets. Each gun has its own magazine and reload time. Only one or two paint enemies are near you, and they shoot once every 2 seconds. Same room code is the same match. First team to 10 paints wins the round.
 
 Browser voxel sandbox. Open the Railway URL on an iPad. No app install.
 

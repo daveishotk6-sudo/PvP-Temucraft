@@ -400,7 +400,7 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
               ))}
             </div>
             <button type="button" className="exit" onClick={onExit}>Save &amp; Exit</button>
-            <p className="note">WASD or the joystick to move. Space or Jump. Shoot paints the other team. Reload, or R. 1 pistol, 2 shotgun, 3 rifle. Same team cannot be painted. First team to 10 wins the round.</p>
+            <p className="note">WASD or the joystick to move. Space or Jump. Shoot paints the other team. Reload, or R. 1 pistol, 2 shotgun, 3 rifle, 4 SMG, 5 sniper, 6 revolver. Same team cannot be painted. First team to 10 wins the round.</p>
           </div>
         </div>
       )}

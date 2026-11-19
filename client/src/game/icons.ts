@@ -91,6 +91,17 @@ function itemIcon(g: CanvasRenderingContext2D, id: number) {
       line(8, 8, 15, 6, body);
       line(8, 7, 14, 5, "#222");
       px(15, 5, "#fff");
+    } else if (id === 203) {
+      line(8, 9, 14, 8, body);
+      line(8, 8, 13, 7, body);
+      px(14, 7, "#fff");
+    } else if (id === 204) {
+      line(7, 8, 15, 5, body);
+      line(10, 7, 15, 6, "#222");
+      px(15, 4, "#fff");
+    } else if (id === 205) {
+      line(8, 8, 13, 6, body);
+      px(10, 9, body); px(11, 10, body); px(13, 5, "#fff");
     } else {
       line(8, 8, 14, 5, body);
       px(14, 4, "#fff");

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { AIR, WATER, block, isReplaceable, SIGN, FURNACE, COAL, SMELT, itemInfo, NETHER_PORTAL, OBSIDIAN, TNT, BASALT, PAINT_PISTOL, PAINT_SHOTGUN, PAINT_RIFLE } from "./blocks";
+import { AIR, WATER, block, isReplaceable, SIGN, FURNACE, COAL, SMELT, itemInfo, NETHER_PORTAL, OBSIDIAN, TNT, BASALT, PAINT_PISTOL, PAINT_SHOTGUN, PAINT_RIFLE, PAINT_SMG, PAINT_SNIPER, PAINT_REVOLVER } from "./blocks";
 import {
   spawnHerd, topUpMobs, updateMob, hitMob, disposeMob, mobDrop, mobName, spawnMonsters, isHostile, mobAim,
   createArrow, updateArrow, disposeArrow, type Arrow, type Mob, type MobCtx,
@@ -48,7 +48,7 @@ export interface EngineOpts {
   onHud: (s: HudState) => void;
 }
 
-const HOTBAR_DEFAULT = [PAINT_PISTOL, PAINT_SHOTGUN, PAINT_RIFLE];
+const HOTBAR_DEFAULT = [PAINT_PISTOL, PAINT_SHOTGUN, PAINT_RIFLE, PAINT_SMG, PAINT_SNIPER, PAINT_REVOLVER];
 
 interface Remote {
   group: THREE.Group;
@@ -556,8 +556,10 @@ export class Engine {
     on("keydown", (e) => {
       if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement | null)?.tagName ?? "")) return;
       if (e.repeat) return;
-      if (/^Digit[1-3]$/.test(e.code)) this.select(Number(e.code.slice(5)) - 1);
-      else if (e.code === "KeyR") this.reloadQueued = true;
+      if (/^Digit[1-9]$/.test(e.code)) {
+        const slot = Number(e.code.slice(5)) - 1;
+        if (slot < this.hotbar.length) this.select(slot);
+      } else if (e.code === "KeyR") this.reloadQueued = true;
       else if (e.code === "Space") this.jumpPress();
       if (["Space", "ArrowUp", "ArrowDown"].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
@@ -1135,9 +1137,9 @@ export class Engine {
       if (this.monsterT <= 0) {
         this.monsterT = 4;
         const hostile = this.mobs.filter((m) => isHostile(m.kind)).length;
-        const cap = 6;
+        const cap = 2;
         if (hostile < cap) {
-          for (const m of spawnMonsters(this.world, this.pos, Math.min(2, cap - hostile), "surface")) {
+          for (const m of spawnMonsters(this.world, this.pos, 1, "surface")) {
             this.scene.add(m.group);
             this.mobs.push(m);
           }

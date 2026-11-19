@@ -234,7 +234,7 @@ function Home() {
             </button>
             <ul className="help">
               <li>iPad: joystick moves, drag looks, Jump, Shoot, Reload.</li>
-              <li>Pistol, shotgun (buckshot), and assault rifle. Each reloads at its own speed.</li>
+              <li>Six guns: pistol, shotgun, rifle, SMG, sniper, revolver. Keys 1–6. Each reloads at its own speed.</li>
               <li>Enemies fire a paint gun every 2 seconds. First team to 10 wins the round.</li>
             </ul>
           </>
