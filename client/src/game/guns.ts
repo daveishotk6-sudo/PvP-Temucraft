@@ -65,7 +65,9 @@ export interface PaintBall {
   shot: number;
 }
 
-const geo = new THREE.SphereGeometry(0.1, 6, 4);
+const geo = new THREE.SphereGeometry(0.13, 14, 12);
+const shineGeo = new THREE.SphereGeometry(0.045, 8, 6);
+const shineMat = new THREE.MeshBasicMaterial({ color: 0xfff6ea });
 const mats = new Map<number, THREE.MeshBasicMaterial>();
 
 function paintMat(color: number) {
@@ -97,6 +99,9 @@ export function spawnBall(
   o: { speed: number; dmg: number; gravity: number; color: number; hostile: boolean; life: number; shot: number; visual?: boolean },
 ): PaintBall {
   const mesh = new THREE.Mesh(geo, paintMat(o.color));
+  const shine = new THREE.Mesh(shineGeo, shineMat);
+  shine.position.set(-0.035, 0.05, 0.04);
+  mesh.add(shine);
   mesh.position.set(from.x, from.y, from.z);
   return {
     mesh,

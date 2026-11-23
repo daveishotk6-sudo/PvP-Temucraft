@@ -14,6 +14,62 @@ function shadedBox(w: number, h: number, d: number, color: number) {
   return m;
 }
 
+function gunBit(parent: THREE.Group, w: number, h: number, d: number, color: number, x: number, y: number, z: number) {
+  const mesh = shadedBox(w, h, d, color);
+  mesh.position.set(x, y, z);
+  parent.add(mesh);
+}
+
+/** First-person paintball gun. Local +Y is the barrel. */
+function buildHeldGun(id: number, paint: number) {
+  const g = new THREE.Group();
+  const metal = 0x3a414a;
+  const dark = 0x1c2127;
+  const grip = 0x5a3a24;
+  const steel = 0xb7c0c8;
+  if (id === 201) {
+    gunBit(g, 0.09, 0.2, 0.1, grip, 0, -0.02, 0.02);
+    gunBit(g, 0.12, 0.26, 0.12, dark, 0, 0.16, 0);
+    gunBit(g, 0.05, 0.46, 0.05, metal, -0.03, 0.46, 0);
+    gunBit(g, 0.05, 0.46, 0.05, metal, 0.03, 0.46, 0);
+    gunBit(g, 0.11, 0.08, 0.07, steel, 0, 0.28, 0);
+    gunBit(g, 0.1, 0.1, 0.08, paint, 0, 0.2, 0.07);
+  } else if (id === 202) {
+    gunBit(g, 0.08, 0.16, 0.1, grip, 0, 0, 0.03);
+    gunBit(g, 0.08, 0.22, 0.08, dark, 0, -0.12, -0.02);
+    gunBit(g, 0.09, 0.34, 0.1, metal, 0, 0.22, 0);
+    gunBit(g, 0.045, 0.4, 0.045, steel, 0, 0.52, 0);
+    gunBit(g, 0.07, 0.16, 0.05, dark, 0, 0.16, 0.07);
+    gunBit(g, 0.08, 0.1, 0.08, paint, 0.07, 0.24, 0);
+  } else if (id === 203) {
+    gunBit(g, 0.08, 0.16, 0.09, grip, 0, 0.02, 0.02);
+    gunBit(g, 0.1, 0.22, 0.1, dark, 0, 0.16, 0);
+    gunBit(g, 0.05, 0.28, 0.05, metal, 0, 0.36, 0);
+    gunBit(g, 0.06, 0.18, 0.04, dark, 0, 0.08, 0.07);
+    gunBit(g, 0.07, 0.08, 0.06, paint, 0.06, 0.18, 0);
+  } else if (id === 204) {
+    gunBit(g, 0.08, 0.16, 0.09, grip, 0, 0, 0.02);
+    gunBit(g, 0.08, 0.28, 0.08, dark, 0, -0.16, -0.01);
+    gunBit(g, 0.08, 0.5, 0.08, metal, 0, 0.28, 0);
+    gunBit(g, 0.035, 0.42, 0.035, steel, 0, 0.68, 0);
+    gunBit(g, 0.06, 0.14, 0.06, dark, 0, 0.42, -0.06);
+    gunBit(g, 0.07, 0.08, 0.07, paint, 0, 0.22, 0.06);
+  } else if (id === 205) {
+    gunBit(g, 0.08, 0.2, 0.09, grip, 0, -0.02, 0.02);
+    gunBit(g, 0.1, 0.12, 0.1, dark, 0, 0.12, 0);
+    gunBit(g, 0.11, 0.11, 0.11, metal, 0, 0.2, 0);
+    gunBit(g, 0.045, 0.28, 0.045, steel, 0, 0.36, 0);
+    gunBit(g, 0.08, 0.08, 0.06, paint, 0.07, 0.16, 0);
+  } else {
+    gunBit(g, 0.08, 0.2, 0.09, grip, 0, -0.02, 0.03);
+    gunBit(g, 0.1, 0.16, 0.11, dark, 0, 0.14, 0);
+    gunBit(g, 0.05, 0.26, 0.05, metal, 0, 0.32, 0);
+    gunBit(g, 0.07, 0.05, 0.04, steel, 0, 0.22, -0.04);
+    gunBit(g, 0.07, 0.08, 0.06, paint, 0.06, 0.16, 0);
+  }
+  return g;
+}
+
 function crackTexture() {
   const STAGES = 10;
   const c = document.createElement("canvas");
@@ -124,13 +180,26 @@ export class MiningFx {
     if (id === this.heldId) return;
     this.heldId = id;
     for (const c of [...this.held.children]) {
+      c.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry.dispose();
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((x) => x.dispose());
+      });
       this.held.remove(c);
-      const m = c as THREE.Mesh;
-      m.geometry.dispose();
-      (m.material as THREE.Material[]).forEach((x) => x.dispose());
     }
     if (id <= 0) return;
-    const color = id < 100 ? block(id).color : itemInfo(id).color;
+    const info = id < 100 ? null : itemInfo(id);
+    if (info?.kind === "gun") {
+      this.held.position.set(-0.02, -0.5, -0.08);
+      this.held.rotation.set(0.35, 0.15, 0.08);
+      this.held.add(buildHeldGun(id, new THREE.Color(info.color).getHex()));
+      return;
+    }
+    this.held.position.set(-0.06, -0.62, -0.17);
+    this.held.rotation.set(0.2, 0.7, 0);
+    const color = id < 100 ? block(id).color : info!.color;
     const cube = shadedBox(0.2, 0.2, 0.2, new THREE.Color(color).getHex());
     if (id >= 100) cube.scale.set(0.35, 1.5, 0.35);
     this.held.add(cube);

@@ -1534,32 +1534,50 @@ export class Engine {
     b.vel.y -= b.gravity * dt;
     const steps = 4;
     for (let i = 0; i < steps; i++) {
+      const x0 = b.pos.x, y0 = b.pos.y, z0 = b.pos.z;
       b.pos.x += (b.vel.x * dt) / steps;
       b.pos.y += (b.vel.y * dt) / steps;
       b.pos.z += (b.vel.z * dt) / steps;
-      if (b.hostile) {
-        if (!b.visual && !this.dead && this.ballHitsPlayer(b.pos)) {
-          this.hurtByMob(b.dmg, b.pos.x - b.vel.x, b.pos.z - b.vel.z);
-          return false;
-        }
-      } else if (!b.visual) {
-        if (this.ballHitsMob(b)) return false;
-        if (this.ballHitsRemote(b)) return false;
-      }
+      if (!b.visual && this.segmentHitsPlayer(b, x0, y0, z0)) return false;
       if (this.world.solid(Math.floor(b.pos.x), Math.floor(b.pos.y), Math.floor(b.pos.z))) {
         this.addSplat(b);
         return false;
       }
     }
     b.mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
+    b.mesh.lookAt(b.pos.x + b.vel.x, b.pos.y + b.vel.y, b.pos.z + b.vel.z);
     return true;
   }
 
-  private ballHitsPlayer(p: { x: number; y: number; z: number }) {
-    return Math.abs(p.x - this.pos.x) < 0.46
-      && Math.abs(p.z - this.pos.z) < 0.46
-      && p.y > this.pos.y
-      && p.y < this.pos.y + 1.75;
+  /** Feet-up capsule that matches the visible player, tested along the whole paint step so fast shots cannot skip the body. */
+  private segmentHitsBody(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, cx: number, feet: number, cz: number) {
+    const radius = 0.46;
+    const ay = feet + 0.22;
+    const by = feet + 1.78;
+    return segDistance(x0, y0, z0, x1, y1, z1, cx, ay, cz, cx, by, cz) <= radius;
+  }
+
+  private segmentHitsPlayer(b: PaintBall, x0: number, y0: number, z0: number) {
+    if (b.hostile) {
+      if (this.dead) return false;
+      if (!this.segmentHitsBody(x0, y0, z0, b.pos.x, b.pos.y, b.pos.z, this.pos.x, this.pos.y, this.pos.z)) return false;
+      this.hurtByMob(b.dmg, x0, z0);
+      return true;
+    }
+    if (this.ballHitsMob(b)) return true;
+    for (const [actor, r] of this.remotes) {
+      if (r.team === this.team) continue;
+      const key = `${b.shot}:p${actor}`;
+      if (this.hitShots.has(key)) continue;
+      const g = r.group.position;
+      if (!this.segmentHitsBody(x0, y0, z0, b.pos.x, b.pos.y, b.pos.z, g.x, g.y, g.z)) continue;
+      this.hitShots.add(key);
+      this.onPlayerHit?.(actor, b.dmg);
+      this.smeltMsg = `Hit ${r.name}`;
+      this.smeltMsgT = 0.7;
+      return true;
+    }
+    return false;
   }
 
   private ballHitsMob(b: PaintBall) {
@@ -1590,25 +1608,6 @@ export class Engine {
     return false;
   }
 
-  private ballHitsRemote(b: PaintBall) {
-    for (const [actor, r] of this.remotes) {
-      if (r.team === this.team) continue;
-      const key = `${b.shot}:p${actor}`;
-      if (this.hitShots.has(key)) continue;
-      const y = r.group.position.y;
-      const hit = Math.abs(b.pos.x - r.group.position.x) < 0.5
-        && Math.abs(b.pos.z - r.group.position.z) < 0.5
-        && b.pos.y > y && b.pos.y < y + 1.85;
-      if (!hit) continue;
-      this.hitShots.add(key);
-      this.onPlayerHit?.(actor, b.dmg);
-      this.smeltMsg = `Hit ${r.name}`;
-      this.smeltMsgT = 0.7;
-      return true;
-    }
-    return false;
-  }
-
   /** Shooter tells the victim's client to take the paint. */
   onPlayerHit?: (actor: number, dmg: number) => void;
 
@@ -1621,10 +1620,12 @@ export class Engine {
       }
     }
     const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.18, 6, 4),
-      new THREE.MeshBasicMaterial({ color: b.color }),
+      new THREE.CircleGeometry(0.28, 12),
+      new THREE.MeshBasicMaterial({ color: b.color, side: THREE.DoubleSide }),
     );
-    mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
+    const sp = Math.hypot(b.vel.x, b.vel.y, b.vel.z) || 1;
+    mesh.position.set(b.pos.x - (b.vel.x / sp) * 0.04, b.pos.y - (b.vel.y / sp) * 0.04, b.pos.z - (b.vel.z / sp) * 0.04);
+    mesh.lookAt(b.pos.x - b.vel.x, b.pos.y - b.vel.y, b.pos.z - b.vel.z);
     this.scene.add(mesh);
     this.splats.push({ mesh, life: 7 });
   }
@@ -1696,4 +1697,40 @@ export class Engine {
 function isDebug(name: string) {
   const n = name.trim().toLowerCase();
   return n === "mx6" || n === "kap";
+}
+
+/** Closest distance between two line segments. */
+function segDistance(
+  ax: number, ay: number, az: number, bx: number, by: number, bz: number,
+  cx: number, cy: number, cz: number, dx: number, dy: number, dz: number,
+) {
+  const ux = bx - ax, uy = by - ay, uz = bz - az;
+  const vx = dx - cx, vy = dy - cy, vz = dz - cz;
+  const wx = ax - cx, wy = ay - cy, wz = az - cz;
+  const a = ux * ux + uy * uy + uz * uz;
+  const b = ux * vx + uy * vy + uz * vz;
+  const c = vx * vx + vy * vy + vz * vz;
+  const d = ux * wx + uy * wy + uz * wz;
+  const e = vx * wx + vy * wy + vz * wz;
+  const den = a * c - b * b;
+  let s = 0;
+  let t = 0;
+  if (den < 1e-8) {
+    s = 0;
+    t = c > 1e-8 ? Math.max(0, Math.min(1, e / c)) : 0;
+  } else {
+    s = Math.max(0, Math.min(1, (b * e - c * d) / den));
+    t = c > 1e-8 ? (b * s + e) / c : 0;
+    if (t < 0) {
+      t = 0;
+      s = a > 1e-8 ? Math.max(0, Math.min(1, -d / a)) : 0;
+    } else if (t > 1) {
+      t = 1;
+      s = a > 1e-8 ? Math.max(0, Math.min(1, (b - d) / a)) : 0;
+    }
+  }
+  const px = ax + ux * s - (cx + vx * t);
+  const py = ay + uy * s - (cy + vy * t);
+  const pz = az + uz * s - (cz + vz * t);
+  return Math.hypot(px, py, pz);
 }
