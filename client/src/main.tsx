@@ -235,7 +235,7 @@ function Home() {
             <ul className="help">
               <li>iPad: joystick moves, drag looks, Jump, Shoot, Reload.</li>
               <li>Six guns: pistol, shotgun, rifle, SMG, sniper, revolver. Keys 1–6. Each reloads at its own speed.</li>
-              <li>Player versus player. Shared animals and monsters do not attack you.</li>
+              <li>Everyone can mine and place blocks from the block bar.</li>
               <li>Everyone in the room sees the same paint shots, splats, and monsters.</li>
             </ul>
           </>

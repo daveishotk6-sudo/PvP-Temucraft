@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Engine, type HudState } from "./engine";
-import { itemInfo } from "./blocks";
+import { BUILD_BLOCKS, itemInfo } from "./blocks";
 import { loadSave, clearRoomLocal } from "./save";
 import { iconURL } from "./icons";
 import { SIGN_MAX_BREAKS, SIGN_MAX_CHARS, type SignData } from "./signs";
@@ -28,7 +28,7 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
   const [status, setStatus] = useState("Connecting");
   const [muted, setMuted] = useState(sfx.muted);
   const [mx6Open, setMx6Open] = useState(false);
-  const [mx6, setMx6] = useState({ fps: 0, seed: 0, chunks: 0, yaw: 0, pitch: 0, fuses: 0, flying: false, health: 20, infAmmo: false, instaReload: false });
+  const [mx6, setMx6] = useState({ fps: 0, seed: 0, chunks: 0, yaw: 0, pitch: 0, fuses: 0, flying: false, health: 20, infAmmo: false, instaReload: false, noCooldown: false, paint: "" });
   const who = name.trim().toLowerCase();
   const admin = who === "mx6" || who === "kap";
   const debugLabel = who === "kap" ? "KAP Debug" : "MX6 Debug";
@@ -255,6 +255,21 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
         {hud && hud.reload > 0 && <i style={{ width: `${Math.round(hud.reload * 100)}%` }} />}
       </div>
 
+      <div className="buildbar">
+        {BUILD_BLOCKS.map((id) => (
+          <button
+            data-hud
+            key={id}
+            type="button"
+            className={hud?.build === id ? "slot on" : "slot"}
+            aria-label={itemInfo(id).name || `Block ${id}`}
+            onClick={() => e()?.selectBuild(id)}
+          >
+            <img src={iconURL(id)} alt="" draggable={false} />
+          </button>
+        ))}
+      </div>
+
       <div className="hotbar">
         {hud?.hotbar.map((id, i) => (
           <button
@@ -289,6 +304,20 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
           Jump
         </button>
         <button data-hud type="button" className="round"
+          onPointerDown={(ev) => { ev.preventDefault(); if (e()) e()!.breakHeld = true; }}
+          onPointerUp={() => { if (e()) e()!.breakHeld = false; }}
+          onPointerCancel={() => { if (e()) e()!.breakHeld = false; }}
+          onPointerLeave={() => { if (e()) e()!.breakHeld = false; }}>
+          Mine
+        </button>
+        <button data-hud type="button" className="round"
+          onPointerDown={(ev) => { ev.preventDefault(); if (e()) { e()!.placeQueued = true; e()!.placeHeld = true; } }}
+          onPointerUp={() => { if (e()) e()!.placeHeld = false; }}
+          onPointerCancel={() => { if (e()) e()!.placeHeld = false; }}
+          onPointerLeave={() => { if (e()) e()!.placeHeld = false; }}>
+          Place
+        </button>
+        <button data-hud type="button" className="round"
           onPointerDown={(ev) => { ev.preventDefault(); e()?.requestReload(); }}>
           Reload
         </button>
@@ -312,6 +341,18 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
           <button type="button" className={mx6.instaReload ? "on" : ""} onClick={() => engine.current?.setInstaReload(!mx6.instaReload)}>
             Insta reload: {mx6.instaReload ? "On" : "Off"}
           </button>
+          <button type="button" className={mx6.noCooldown ? "on" : ""} onClick={() => engine.current?.setNoCooldown(!mx6.noCooldown)}>
+            No cooldown: {mx6.noCooldown ? "On" : "Off"}
+          </button>
+          <label className="mx6-color">
+            Paint color
+            <input
+              type="color"
+              value={mx6.paint || "#3ec1ff"}
+              onChange={(ev) => engine.current?.setPaintColor(ev.target.value)}
+            />
+          </label>
+          <button type="button" onClick={() => engine.current?.setPaintColor(null)}>Team color</button>
           <button type="button" onClick={() => engine.current?.spawnLitTnt()}>Spawn lit TNT</button>
           <button type="button" onClick={() => engine.current?.mx6Heal()}>Heal</button>
           <button type="button" onClick={() => setMx6Open(false)}>Close</button>
@@ -417,7 +458,7 @@ export default function VoxelView({ seed, room, name, team, onExit }: Props) {
               ))}
             </div>
             <button type="button" className="exit" onClick={onExit}>Save &amp; Exit</button>
-            <p className="note">WASD or the joystick to move. Space or Jump. Shoot paints the other team. Reload, or R. 1 pistol, 2 shotgun, 3 rifle, 4 SMG, 5 sniper, 6 revolver. Same team cannot be painted. First team to 10 wins the round.</p>
+            <p className="note">WASD or the joystick to move. Shoot paints the other team. Mine and Place use the block bar. Reload, or R. 1–6 switch guns.</p>
           </div>
         </div>
       )}

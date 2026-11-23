@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { AIR, WATER, block, isReplaceable, SIGN, FURNACE, COAL, SMELT, itemInfo, NETHER_PORTAL, OBSIDIAN, TNT, BASALT, PAINT_PISTOL, PAINT_SHOTGUN, PAINT_RIFLE, PAINT_SMG, PAINT_SNIPER, PAINT_REVOLVER } from "./blocks";
+import { AIR, WATER, block, isReplaceable, SIGN, FURNACE, COAL, SMELT, itemInfo, NETHER_PORTAL, OBSIDIAN, TNT, BASALT, LAST_BLOCK, GRASS, PAINT_PISTOL, PAINT_SHOTGUN, PAINT_RIFLE, PAINT_SMG, PAINT_SNIPER, PAINT_REVOLVER } from "./blocks";
 import {
   spawnHerd, topUpMobs, updateMob, hitMob, disposeMob, mobDrop, mobName, spawnMonsters, isHostile, mobAim, createMob, isMobKind,
   createArrow, updateArrow, disposeArrow, type Arrow, type Mob, type MobCtx, type MobSnap,
@@ -35,6 +35,7 @@ export interface HudState {
   /** 0 when ready, otherwise how full the reload is (0..1). */
   reload: number;
   team: TeamId;
+  build: number;
 }
 
 export interface EngineOpts {
@@ -86,6 +87,9 @@ export class Engine {
   mineHeld = false;
   placeHeld = false;
   placeQueued = false;
+  /** Hold to break the aimed block. Separate from shooting. */
+  breakHeld = false;
+  buildId = GRASS;
   /** Touch "Down" button: descend while flying. */
   descendHeld = false;
 
@@ -115,6 +119,9 @@ export class Engine {
   private reloadDur = 0;
   private infAmmo = false;
   private instaReload = false;
+  private noCooldown = false;
+  /** Null keeps the team color. */
+  private paintTint: number | null = null;
   private fireCd = 0;
   private shotLatch = false;
   reloadQueued = false;
@@ -129,7 +136,7 @@ export class Engine {
   private mobSendT = 0;
   onMobSync?: (list: MobSnap[]) => void;
   onMobHurt?: (id: number, dmg: number) => void;
-  onBalls?: (p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[] }) => void;
+  onBalls?: (p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[]; color: number }) => void;
   private airT = 0;
   private peakY = 0;
   private airborne = false;
@@ -487,6 +494,8 @@ export class Engine {
       health: this.health,
       infAmmo: this.infAmmo,
       instaReload: this.instaReload,
+      noCooldown: this.noCooldown,
+      paint: this.paintTint == null ? "" : `#${this.paintTint.toString(16).padStart(6, "0")}`,
     };
   }
 
@@ -510,6 +519,34 @@ export class Engine {
     this.emit();
   }
 
+  /** Debug only. Shots have no wait, so the shotgun can be held down. */
+  setNoCooldown(on: boolean) {
+    if (!isDebug(this.o.name)) return;
+    this.noCooldown = on;
+    if (on) this.fireCd = 0;
+    this.emit();
+  }
+
+  /** Debug only. Pass a #rrggbb string, or null to go back to the team color. */
+  setPaintColor(hex: string | null) {
+    if (!isDebug(this.o.name)) return;
+    if (!hex) {
+      this.paintTint = null;
+      this.emit();
+      return;
+    }
+    const n = Number.parseInt(hex.replace("#", ""), 16);
+    if (!Number.isFinite(n) || n < 0 || n > 0xffffff) return;
+    this.paintTint = n;
+    this.emit();
+  }
+
+  selectBuild(id: number) {
+    if (id < 1 || id > LAST_BLOCK) return;
+    this.buildId = id;
+    sfx.click();
+    this.emit();
+  }
 
   respawn() {
     this.health = 20;
@@ -782,6 +819,7 @@ export class Engine {
       magSize: gunOf(this.hotbar[this.selected] ?? 0)?.mag ?? 0,
       reload: this.reloadLeft > 0 && this.reloadDur > 0 ? 1 - this.reloadLeft / this.reloadDur : 0,
       team: this.team,
+      build: this.buildId,
     });
   }
 
@@ -1242,10 +1280,12 @@ export class Engine {
     }
   }
 
-  applyBalls(p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[] }) {
+  applyBalls(p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[]; color?: number }) {
     const gun = gunOf(p.gun) ?? GUNS[0];
     if (!gun || !p.dirs) return;
-    const color = p.team === "painter" ? TEAM_COLOR.painter : TEAM_COLOR.paint;
+    const color = typeof p.color === "number"
+      ? p.color
+      : p.team === "painter" ? TEAM_COLOR.painter : TEAM_COLOR.paint;
     for (let i = 0; i + 2 < p.dirs.length; i += 3) {
       const ball = spawnBall(
         { x: p.x, y: p.y, z: p.z },
@@ -1314,11 +1354,51 @@ export class Engine {
     const dx = -Math.sin(this.yaw) * Math.cos(this.pitch);
     const dy = Math.sin(this.pitch);
     const dz = -Math.cos(this.yaw) * Math.cos(this.pitch);
-    this.hit = null;
-    this.outline.visible = false;
+    this.hit = raycast(w, ex, ey, ez, dx, dy, dz, 6);
+    const hit = this.hit;
+    if (hit) {
+      this.outline.visible = true;
+      this.outline.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+    } else this.outline.visible = false;
     this.handleGuns(dt, dx, dy, dz, ex, ey, ez);
-    return;
+    this.handleBuild(dt);
+  }
 
+  private handleBuild(dt: number) {
+    const hit = this.hit;
+    const w = this.world;
+    this.mineCd = Math.max(0, this.mineCd - dt);
+    this.placeCd = Math.max(0, this.placeCd - dt);
+    if (this.breakHeld && hit && this.mineCd <= 0) {
+      const id = w.get(hit.x, hit.y, hit.z);
+      const def = block(id);
+      if (def.hardness !== Infinity && id !== AIR) {
+        this.breakBlock(hit.x, hit.y, hit.z);
+        this.mineCd = 0.16;
+      }
+    }
+    if ((this.placeQueued || this.placeHeld) && this.placeCd <= 0 && hit) {
+      this.placeQueued = false;
+      const id = this.buildId;
+      const here = w.get(hit.x, hit.y, hit.z);
+      const px = isReplaceable(here) ? hit.x : hit.x + hit.faceX;
+      const py = isReplaceable(here) ? hit.y : hit.y + hit.faceY;
+      const pz = isReplaceable(here) ? hit.z : hit.z + hit.faceZ;
+      if (id > 0 && id <= LAST_BLOCK && py > 0 && py < WH - 1 && isReplaceable(w.get(px, py, pz))) {
+        const solid = block(id).solid;
+        const blocksPlayer = solid &&
+          this.pos.x - HALF_W < px + 1 && this.pos.x + HALF_W > px &&
+          this.pos.z - HALF_W < pz + 1 && this.pos.z + HALF_W > pz &&
+          this.pos.y < py + 1 && this.pos.y + HEIGHT > py;
+        if (!blocksPlayer) {
+          w.set(px, py, pz, id);
+          this.markEdit(px, pz);
+          sfx.block(id, "place");
+          this.onLocalBlock?.(px, py, pz, id);
+          this.placeCd = this.placeHeld ? 0.18 : 0.22;
+        }
+      }
+    } else if (!this.placeHeld) this.placeQueued = false;
   }
 
   private gunNow(): GunDef | null {
@@ -1358,9 +1438,9 @@ export class Engine {
       this.beginReload(gun);
       return;
     }
-    if (!gun.auto && this.shotLatch) return;
+    if (!gun.auto && this.shotLatch && !this.noCooldown) return;
     this.fireGun(gun, dx, dy, dz, ex, ey, ez);
-    if (!gun.auto) this.shotLatch = true;
+    if (!gun.auto && !this.noCooldown) this.shotLatch = true;
   }
 
   private beginReload(gun: GunDef | null) {
@@ -1387,11 +1467,12 @@ export class Engine {
     const ammo = this.mags.get(gun.id) ?? 0;
     if (ammo <= 0 && !this.infAmmo) return;
     if (!this.infAmmo) this.mags.set(gun.id, ammo - 1);
-    this.fireCd = gun.fire;
+    this.fireCd = this.noCooldown ? 0.05 : gun.fire;
     this.fx.swingOnce();
     sfx.paint(gun.pellets > 1);
     const shot = nextShot();
     const origin = { x: ex, y: ey, z: ez };
+    const color = this.paintTint ?? TEAM_COLOR[this.team];
     const dirs: number[] = [];
     for (let i = 0; i < gun.pellets; i++) {
       const dir = jitterDir(dx, dy, dz, gun.spread);
@@ -1400,7 +1481,7 @@ export class Engine {
         speed: gun.speed,
         dmg: gun.dmg,
         gravity: gun.gravity,
-        color: TEAM_COLOR[this.team],
+        color,
         hostile: false,
         life: gun.life,
         shot,
@@ -1408,7 +1489,7 @@ export class Engine {
       this.scene.add(ball.mesh);
       this.balls.push(ball);
     }
-    this.onBalls?.({ x: origin.x, y: origin.y, z: origin.z, team: this.team, gun: gun.id, dirs });
+    this.onBalls?.({ x: origin.x, y: origin.y, z: origin.z, team: this.team, gun: gun.id, dirs, color });
     if (!this.infAmmo && (this.mags.get(gun.id) ?? 0) <= 0) this.beginReload(gun);
     else this.emit();
   }

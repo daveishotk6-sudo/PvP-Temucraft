@@ -41,6 +41,9 @@ export const PUMPKIN = 39;
 export const TNT = 40;
 export const LAST_BLOCK = 39;
 
+/** Blocks every player can place. */
+export const BUILD_BLOCKS = [GRASS, DIRT, STONE, LOG, PLANKS, SAND, COBBLE, GLASS, BRICK, WOOL, LANTERN, SNOW];
+
 // Non-block items
 export const COAL = 100;
 export const IRON = 101;

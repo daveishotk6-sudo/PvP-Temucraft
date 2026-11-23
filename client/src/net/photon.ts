@@ -45,7 +45,7 @@ type Handlers = {
   onHit?: (victim: number, dmg: number, fromTeam: TeamId, fromName: string) => void;
   /** A player was painted out. `team` is the team that scored. */
   onScore?: (team: TeamId, victim: string) => void;
-  onBalls?: (p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[] }) => void;
+  onBalls?: (p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[]; color?: number }) => void;
   onMobs?: (list: MobSnap[]) => void;
   onMobHurt?: (id: number, dmg: number) => void;
 };
@@ -67,7 +67,7 @@ export type PhotonLink = {
   me: () => number;
   /** Lowest actor in the room simulates the shared monsters. Solo play counts as master. */
   isMaster: () => boolean;
-  balls: (p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[] }) => void;
+  balls: (p: { x: number; y: number; z: number; team: TeamId; gun: number; dirs: number[]; color?: number }) => void;
   mobs: (list: MobSnap[]) => void;
   mobHurt: (id: number, dmg: number) => void;
   close: () => void;
